@@ -1,8 +1,9 @@
-import { FormEvent, useState } from "react";
+import { ChangeEvent, FormEvent, useState } from "react";
+import { api } from "../api/client";
 import { Badge, Empty, Field, Modal } from "../components/ui";
 import { money, num } from "../format";
 import { useCrm } from "../store/crmStore";
-import { toastError } from "../store/toastStore";
+import { toastError, useToasts } from "../store/toastStore";
 import type { Channel, ChannelKind } from "../types";
 
 const KINDS: ChannelKind[] = ["social", "marketplace", "website", "email", "direct", "ads", "other"];
@@ -12,7 +13,20 @@ const KIND_LABEL: Record<ChannelKind, string> = {
 const blank: Partial<Channel> = { name: "", kind: "social", platform: "", handle: "", url: "", followers: 0, monthly_cost: 0, active: true, notes: "" };
 
 export default function ChannelsPage() {
-  const { channels } = useCrm();
+  const { channels, loadChannels } = useCrm();
+  const toast = useToasts((s) => s.push);
+
+  async function importCsv(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const form = new FormData(); form.append("file", file);
+    try {
+      const r = await api.upload<{ created: number; updated: number; skipped: number; errors: string[] }>("/channels/import", form);
+      toast(`Channels: ${r.created} added, ${r.updated} updated${r.skipped ? `, ${r.skipped} skipped` : ""}`, "success");
+      r.errors.slice(0, 5).forEach((m) => toast(m, "error"));
+      await loadChannels();
+    } catch (err) { toastError(err); } finally { e.target.value = ""; }
+  }
   const [editing, setEditing] = useState<Partial<Channel> | null>(null);
   const [kind, setKind] = useState<ChannelKind | "">("");
   const shown = channels.filter((c) => !kind || c.kind === kind);
@@ -21,7 +35,13 @@ export default function ChannelsPage() {
     <div className="page">
       <header className="page-head">
         <div><h1>Channels</h1><p className="muted">Social accounts and sales channels, with attributed leads, deals and revenue.</p></div>
-        <button className="btn btn-primary" onClick={() => setEditing({ ...blank })}>+ New channel</button>
+        <div className="row">
+          <button className="btn" title="Download all channels in the import format (an empty CRM gives a blank template)"
+            onClick={() => api.download("/channels/export", "channels.csv").catch(toastError)}>Export / template</button>
+          <label className="btn" title="CSV columns: Name, Type, Platform, Handle, URL, Followers / subscribers, Monthly cost (USD), Active, Notes. Matching names are updated.">
+            Import CSV<input type="file" accept=".csv,.tsv,.txt,text/csv" hidden onChange={importCsv} /></label>
+          <button className="btn btn-primary" onClick={() => setEditing({ ...blank })}>+ New channel</button>
+        </div>
       </header>
       <div className="toolbar">
         <div className="segmented">

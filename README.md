@@ -135,6 +135,10 @@ docker compose logs -f crm    # then open http://<CRM_BIND>:8000
 - The `env_file … required: false` syntax needs Docker Compose v2.24+. On older versions, change it to `env_file: .env` and make sure `.env` exists.
 - Put it behind HTTPS (Caddy, Nginx Proxy Manager, Cloudflare Tunnel, Tailscale) before exposing it to the internet. The API requires login for everything except `/api/health` and `/api/auth/status|setup|login`; `/api/auth/setup` only works while no account exists.
 
+## Importing channels
+
+Channels → **Import CSV** reads the columns `Name, Type, Platform, Handle, URL, Followers / subscribers, Monthly cost (USD), Active, Notes` (comma- or tab-separated; Excel/Google Sheets "Download as CSV" works). Type can be the on-screen label ("Website / store") or the short name. A row whose Name matches an existing channel updates it, and blank cells keep what's already there. **Export / template** downloads the same layout.
+
 ## Integrations (YouTube, Facebook Page, Square, Rumble)
 
 Open **Integrations** in the sidebar, click **Connect** on a platform, follow the built-in steps, and paste

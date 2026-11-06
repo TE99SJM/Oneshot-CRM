@@ -92,3 +92,30 @@ def test_demo_seed(auth):
     dash = auth.get("/api/dashboard").json()
     assert dash["kpis"]["contacts"] == 32 and len(dash["funnels"]) == 2
     assert len(auth.get("/api/channels").json()) == 8
+
+
+def test_channel_import(auth):
+    csv_text = (
+        "Name,Type,Platform,Handle,URL,Followers / subscribers,Monthly cost (USD),Active,Notes\n"
+        "The Forge - YouTube,Social,youtube,@The_Forge_sports,https://www.youtube.com/@The_Forge_sports,,,TRUE,\"Note, with comma\"\n"
+        "The Forge - Main website,Website / store,Porkbun,,https://mooresforge.com,,$1.25,TRUE,Domain\n"
+        "The Forge - Rumble,Social,rumble,,,1.2K,,FALSE,Placeholder\n"
+        "Bad,Social,x,,,lots,,,\n"
+        ",,,,,,,,\n"
+    )
+    r = auth.post("/api/channels/import", files={"file": ("c.csv", csv_text, "text/csv")})
+    assert r.status_code == 200, r.text
+    assert r.json()["created"] == 3 and r.json()["skipped"] == 1 and len(r.json()["errors"]) == 1
+    chans = {c["name"]: c for c in auth.get("/api/channels").json()}
+    assert chans["The Forge - Main website"]["kind"] == "website" and chans["The Forge - Main website"]["monthly_cost"] == 1.25
+    assert chans["The Forge - Main website"]["platform"] == "porkbun"
+    assert chans["The Forge - Rumble"]["followers"] == 1200 and chans["The Forge - Rumble"]["active"] is False
+    assert chans["The Forge - YouTube"]["notes"] == "Note, with comma"
+    # re-import updates instead of duplicating; tab-separated works too
+    tsv = "Name\tFollowers / subscribers\nThe Forge - YouTube\t1500\n"
+    r = auth.post("/api/channels/import", files={"file": ("c.tsv", tsv, "text/plain")}).json()
+    assert r["updated"] == 1 and r["created"] == 0
+    chans = {c["name"]: c for c in auth.get("/api/channels").json()}
+    assert chans["The Forge - YouTube"]["followers"] == 1500 and chans["The Forge - YouTube"]["handle"] == "@The_Forge_sports"
+    exp = auth.get("/api/channels/export").text
+    assert exp.startswith("Name,Type,Platform") and "Website / store" in exp
