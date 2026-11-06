@@ -104,7 +104,7 @@ export default function ContentPage() {
               <thead><tr><th>Title</th><th>Channel</th><th>Status</th><th>When</th><th className="num">Views</th><th className="num">Engagement</th><th className="num">Clicks</th></tr></thead>
               <tbody>{filtered.map((p) => (
                 <tr key={p.id} className="clickable" onClick={() => setEditing(p)}>
-                  <td><strong>{p.title}</strong>{p.external_source && <> <Badge tone="blue">{`synced · ${p.external_source}`}</Badge></>}</td>
+                  <td><strong>{p.url ? <a href={p.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{p.title} ↗</a> : p.title}</strong>{p.external_source && <> <Badge tone="blue">{`synced · ${p.external_source}`}</Badge></>}</td>
                   <td>{channelName(channels, p.channel_id)}</td>
                   <td><Badge tone={statusTone[p.status]}>{p.status}</Badge></td>
                   <td>{dateTime(p.published_at ?? p.scheduled_at)}</td>

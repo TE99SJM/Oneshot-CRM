@@ -1,10 +1,25 @@
-import { ChangeEvent, FormEvent, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { Badge, Empty, Field, Modal } from "../components/ui";
 import { money, num } from "../format";
 import { useCrm } from "../store/crmStore";
 import { toastError, useToasts } from "../store/toastStore";
-import type { Channel, ChannelKind } from "../types";
+import type { Channel, ChannelKind, Integration } from "../types";
+
+function ago(iso: string | null) {
+  if (!iso) return "not synced yet";
+  const min = Math.round((Date.now() - new Date(iso + (iso.endsWith("Z") ? "" : "Z")).getTime()) / 60000);
+  if (min < 1) return "synced just now";
+  if (min < 60) return `synced ${min} min ago`;
+  if (min < 48 * 60) return `synced ${Math.round(min / 60)} h ago`;
+  return `synced ${Math.round(min / 1440)} days ago`;
+}
+
+function safeUrl(u: string) {
+  const v = u.trim();
+  if (!v) return "";
+  return /^https?:\/\//i.test(v) ? v : `https://${v}`;
+}
 
 const KINDS: ChannelKind[] = ["social", "marketplace", "website", "email", "direct", "ads", "other"];
 const KIND_LABEL: Record<ChannelKind, string> = {
@@ -15,6 +30,8 @@ const blank: Partial<Channel> = { name: "", kind: "social", platform: "", handle
 export default function ChannelsPage() {
   const { channels, loadChannels } = useCrm();
   const toast = useToasts((s) => s.push);
+  const [integrations, setIntegrations] = useState<Integration[]>([]);
+  useEffect(() => { api.get<Integration[]>("/integrations").then(setIntegrations).catch(() => {}); }, [channels]);
 
   async function importCsv(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -58,6 +75,19 @@ export default function ChannelsPage() {
                 <div className="row-between">
                   <div><strong>{c.name}</strong><div className="muted small">{c.platform || KIND_LABEL[c.kind]}{c.handle && ` · ${c.handle}`}</div></div>
                   <Badge tone={c.active ? "blue" : "neutral"}>{KIND_LABEL[c.kind]}</Badge>
+                </div>
+                <div className="row channel-links">
+                  {c.url ? (
+                    <a className="btn btn-sm" href={safeUrl(c.url)} target="_blank" rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}>Open channel ↗</a>
+                  ) : <span className="muted small">No URL yet</span>}
+                  {(() => {
+                    const live = integrations.filter((i) => i.channel_id === c.id && i.enabled);
+                    if (!live.length) return <Badge tone="neutral">Manual stats</Badge>;
+                    const i = live[0];
+                    return <span title={i.last_error || undefined}><Badge tone={i.last_status === "error" ? "red" : "green"}>
+                      {i.last_status === "error" ? "Live sync error" : `Live · ${ago(i.last_sync_at)}`}</Badge></span>;
+                  })()}
                 </div>
                 <div className="mini-stats">
                   <div><span className="mono">{num(c.followers)}</span><small>audience</small></div>
