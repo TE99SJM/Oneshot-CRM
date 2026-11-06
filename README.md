@@ -122,9 +122,9 @@ cd frontend && npm run typecheck
 ## Deploy with Docker
 
 ```bash
-cp .env.example .env          # set SECRET_KEY and ALLOW_DEMO_SEED=false
+cp .env.example .env          # set SECRET_KEY, ALLOW_DEMO_SEED=false, CRM_BIND=<tailscale ip>
 docker compose up -d --build
-docker compose logs -f crm    # then open http://<server>:8000
+docker compose logs -f crm    # then open http://<CRM_BIND>:8000
 ```
 
 - Data lives in the named volume `crm-data` (`/data` in the container): the SQLite database and the generated secret key. Back it up with
