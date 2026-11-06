@@ -48,6 +48,8 @@ class Contact(Base):
     source_channel_id: Mapped[int | None] = mapped_column(ForeignKey("channels.id", ondelete="SET NULL"), nullable=True)
     tags: Mapped[str] = mapped_column(String(500), default="")          # comma separated
     notes: Mapped[str] = mapped_column(Text, default="")
+    external_source: Mapped[str] = mapped_column(String(30), default="", index=True)   # youtube|facebook|square|rumble
+    external_id: Mapped[str] = mapped_column(String(120), default="", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -91,6 +93,8 @@ class Deal(Base):
     expected_close: Mapped[date | None] = mapped_column(Date, nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     notes: Mapped[str] = mapped_column(Text, default="")
+    external_source: Mapped[str] = mapped_column(String(30), default="", index=True)   # youtube|facebook|square|rumble
+    external_id: Mapped[str] = mapped_column(String(120), default="", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -115,6 +119,8 @@ class Post(Base):
     comments: Mapped[int] = mapped_column(Integer, default=0)
     shares: Mapped[int] = mapped_column(Integer, default=0)
     clicks: Mapped[int] = mapped_column(Integer, default=0)
+    external_source: Mapped[str] = mapped_column(String(30), default="", index=True)   # youtube|facebook|square|rumble
+    external_id: Mapped[str] = mapped_column(String(120), default="", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     channel: Mapped[Channel | None] = relationship()
@@ -131,3 +137,23 @@ class Activity(Base):
     due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Integration(Base):
+    """A connection to an external platform that syncs data into the CRM."""
+    __tablename__ = "integrations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(30))                    # youtube|facebook|square|rumble
+    name: Mapped[str] = mapped_column(String(120), default="")
+    channel_id: Mapped[int | None] = mapped_column(ForeignKey("channels.id", ondelete="SET NULL"), nullable=True)
+    config: Mapped[str] = mapped_column(Text, default="{}")              # JSON, non-secret settings
+    secrets: Mapped[str] = mapped_column(Text, default="")               # Fernet-encrypted JSON
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    sync_interval_minutes: Mapped[int] = mapped_column(Integer, default=360)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_status: Mapped[str] = mapped_column(String(10), default="never")  # never|ok|error|running
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    last_result: Mapped[str] = mapped_column(Text, default="{}")         # JSON summary of last sync
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    channel: Mapped[Channel | None] = relationship()

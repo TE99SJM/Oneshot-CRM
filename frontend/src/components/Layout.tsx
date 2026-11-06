@@ -7,6 +7,7 @@ const NAV = [
   { to: "/contacts", label: "Contacts" },
   { to: "/content", label: "Content" },
   { to: "/channels", label: "Channels" },
+  { to: "/integrations", label: "Integrations" },
   { to: "/tasks", label: "Tasks" },
   { to: "/settings", label: "Settings" },
 ];

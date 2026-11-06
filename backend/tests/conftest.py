@@ -6,6 +6,7 @@ import pytest
 _tmp = tempfile.mkdtemp()
 os.environ["DATA_DIR"] = _tmp
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
+os.environ["SYNC_SCHEDULER"] = "false"
 os.environ["FRONTEND_DIST"] = os.path.join(_tmp, "no-dist")
 
 from fastapi.testclient import TestClient  # noqa: E402

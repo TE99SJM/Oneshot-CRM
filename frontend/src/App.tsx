@@ -6,6 +6,7 @@ import ChannelsPage from "./pages/ChannelsPage";
 import ContactsPage from "./pages/ContactsPage";
 import ContentPage from "./pages/ContentPage";
 import DashboardPage from "./pages/DashboardPage";
+import IntegrationsPage from "./pages/IntegrationsPage";
 import LoginPage from "./pages/LoginPage";
 import PipelinePage from "./pages/PipelinePage";
 import SettingsPage from "./pages/SettingsPage";
@@ -45,6 +46,7 @@ export default function App() {
             <Route path="contacts" element={<ContactsPage />} />
             <Route path="content" element={<ContentPage />} />
             <Route path="channels" element={<ChannelsPage />} />
+            <Route path="integrations" element={<IntegrationsPage />} />
             <Route path="tasks" element={<TasksPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

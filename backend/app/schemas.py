@@ -130,6 +130,8 @@ class ContactPatch(BaseModel):
 
 
 class ContactOut(ContactBase, ORM):
+    external_source: str = ""
+    external_id: str = ""
     id: int
     created_at: datetime
     updated_at: datetime
@@ -197,6 +199,8 @@ class DealPatch(BaseModel):
 
 
 class DealOut(DealBase, ORM):
+    external_source: str = ""
+    external_id: str = ""
     id: int
     status: StageKind
     closed_at: datetime | None
@@ -240,6 +244,8 @@ class PostPatch(BaseModel):
 
 
 class PostOut(PostBase, ORM):
+    external_source: str = ""
+    external_id: str = ""
     id: int
     created_at: datetime
 

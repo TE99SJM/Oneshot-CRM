@@ -42,6 +42,8 @@ funnelhub-crm/
 │   │   ├── security.py       # PBKDF2 password hashing, JWT tokens
 │   │   ├── deps.py           # current_user auth guard, 404/422 helpers
 │   │   ├── seed.py           # demo data (python -m app.seed)
+│   │   ├── migrate.py        # adds new columns to older databases on startup
+│   │   ├── integrations/     # youtube.py, facebook.py, square.py, rumble.py, service.py, scheduler.py
 │   │   └── routers/
 │   │       ├── auth.py       # status, first-run setup, login, me, change password
 │   │       ├── dashboard.py  # aggregated KPIs
@@ -133,6 +135,25 @@ docker compose logs -f crm    # then open http://<CRM_BIND>:8000
 - The `env_file … required: false` syntax needs Docker Compose v2.24+. On older versions, change it to `env_file: .env` and make sure `.env` exists.
 - Put it behind HTTPS (Caddy, Nginx Proxy Manager, Cloudflare Tunnel, Tailscale) before exposing it to the internet. The API requires login for everything except `/api/health` and `/api/auth/status|setup|login`; `/api/auth/setup` only works while no account exists.
 
+## Integrations (YouTube, Facebook Page, Square, Rumble)
+
+Open **Integrations** in the sidebar, click **Connect** on a platform, follow the built-in steps, and paste
+the requested key. The first sync runs right away; after that the CRM syncs on its own schedule
+(every 6 hours by default, adjustable per connection). Use **Test** to check credentials and **Sync now** to refresh.
+
+| Platform | What you paste | What syncs |
+|---|---|---|
+| YouTube | Channel @handle + Google Cloud API key (YouTube Data API v3) | Subscribers, recent uploads with views/likes/comments → Content |
+| Facebook Page | Page ID + long-lived Page access token (Graph API v27.0) | Followers, recent posts with reactions/comments/shares; views if the token has `read_insights` |
+| Square | Production access token | Customers → Contacts; completed orders → won deals in an auto-created "Square Sales" funnel (refunds subtracted) |
+| Rumble | Live Stream API URL (rumble.com/account/livestream-api) and/or channel page URL | Followers, subscribers, live streams. Rumble has no public per-video stats API. |
+
+Notes:
+- Tokens are encrypted in the database with a key derived from `SECRET_KEY`. If you change `SECRET_KEY`, re-enter tokens.
+- Disconnecting keeps everything already synced. Synced items show a "Synced" badge; their stats are overwritten on each sync.
+- The server needs outbound internet access. Set `SYNC_SCHEDULER=false` to disable background syncing.
+- Database upgrades are automatic: new columns are added to an existing database at startup.
+
 ## Configuration
 
 All variables are optional; see `.env.example`.
@@ -141,12 +162,13 @@ All variables are optional; see `.env.example`.
 |---|---|---|
 | `DATABASE_URL` | SQLite in `DATA_DIR` | e.g. `postgresql+psycopg://user:pass@host/db` (uncomment `psycopg` in requirements.txt) |
 | `DATA_DIR` | `backend/data` | SQLite file + generated secret key |
-| `SECRET_KEY` | generated & saved | JWT signing key; changing it signs everyone out |
+| `SECRET_KEY` | generated & saved | JWT signing key + integration token encryption; changing it signs everyone out and requires re-entering integration tokens |
 | `TOKEN_MINUTES` | `10080` (7 days) | Login lifetime |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated origins allowed to call the API directly |
 | `ALLOW_DEMO_SEED` | `true` | Enables Settings → Load demo data (only works on an empty CRM) |
+| `SYNC_SCHEDULER` | `true` | Background sync of connected integrations |
 
-Tables are created automatically on startup. Schema changes in future versions would need a migration tool such as Alembic; this prototype uses `create_all`.
+Tables are created automatically on startup, and new columns from upgrades are added automatically (`backend/app/migrate.py`).
 
 ## REST API
 
@@ -190,5 +212,5 @@ curl -s localhost:8000/api/dashboard -H "Authorization: Bearer $TOKEN"
 
 ## Not included yet (natural next steps)
 
-- Direct posting / metric sync with YouTube, Facebook, Rumble, TikTok APIs (metrics are entered manually today)
+- Direct posting to platforms, TikTok/Instagram integrations, OAuth "Sign in with..." flows (keys are pasted today)
 - Multiple users with roles, email sending, file attachments, Alembic migrations

@@ -31,6 +31,7 @@ export interface Post {
   id: number; channel_id: number | null; title: string; body: string; status: PostStatus;
   scheduled_at: string | null; published_at: string | null; url: string;
   views: number; likes: number; comments: number; shares: number; clicks: number; created_at: string;
+  external_source?: string; external_id?: string;
 }
 
 export interface Activity {
@@ -51,4 +52,19 @@ export interface Dashboard {
   revenue_by_month: { month: string; won: number }[];
   upcoming_posts: Post[];
   open_tasks: Activity[];
+}
+
+export interface ProviderField {
+  key: string; label: string; secret: boolean; required: boolean; placeholder: string; help: string;
+  kind: "text" | "select"; options: string[]; default: string;
+}
+export interface Provider {
+  key: string; name: string; platform: string; channel_kind: string; summary: string; syncs: string[];
+  fields: ProviderField[]; steps: string[]; docs_url: string;
+}
+export interface Integration {
+  id: number; provider: string; name: string; channel_id: number | null; channel_name: string | null;
+  config: Record<string, string>; saved_secrets: string[]; secrets_ok: boolean; enabled: boolean;
+  sync_interval_minutes: number; last_sync_at: string | null; last_status: "never" | "ok" | "error" | "running";
+  last_error: string; last_result: Record<string, unknown> & { warnings?: string[] }; created_at: string;
 }

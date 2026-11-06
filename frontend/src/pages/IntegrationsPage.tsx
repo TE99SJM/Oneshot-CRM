@@ -1,0 +1,219 @@
+import { FormEvent, useCallback, useEffect, useState } from "react";
+import { api } from "../api/client";
+import { Badge, Empty, Field, Modal } from "../components/ui";
+import { dateTime, money, num } from "../format";
+import { useCrm } from "../store/crmStore";
+import { toastError, useToasts } from "../store/toastStore";
+import type { Integration, Provider } from "../types";
+
+const STATUS_TONE: Record<string, string> = { ok: "green", error: "red", running: "amber", never: "neutral" };
+const STATUS_LABEL: Record<string, string> = { ok: "Synced", error: "Error", running: "Syncing…", never: "Not synced yet" };
+const INTERVALS = [
+  { v: 60, l: "Every hour" }, { v: 180, l: "Every 3 hours" }, { v: 360, l: "Every 6 hours" },
+  { v: 720, l: "Every 12 hours" }, { v: 1440, l: "Once a day" }, { v: 0, l: "Manual only" },
+];
+const RESULT_LABEL: Record<string, string> = {
+  followers: "followers", subscribers: "subscribers", total_channel_views: "channel views", posts_created: "new posts",
+  posts_updated: "posts updated", contacts_created: "new contacts", contacts_updated: "contacts updated",
+  deals_created: "new deals", deals_updated: "deals updated", orders_synced: "orders", revenue_synced: "revenue",
+};
+
+function summary(r: Integration["last_result"]) {
+  return Object.entries(RESULT_LABEL)
+    .filter(([k]) => typeof r[k] === "number")
+    .map(([k, label]) => `${k === "revenue_synced" ? money(r[k] as number) : num(r[k] as number)} ${label}`)
+    .join(" · ");
+}
+
+export default function IntegrationsPage() {
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [items, setItems] = useState<Integration[]>([]);
+  const [editing, setEditing] = useState<{ provider: Provider; existing?: Integration } | null>(null);
+  const [busy, setBusy] = useState<Record<number, string>>({});
+  const loadChannels = useCrm((s) => s.loadChannels);
+  const push = useToasts((s) => s.push);
+
+  const load = useCallback(async () => {
+    const [p, i] = await Promise.all([api.get<Provider[]>("/integrations/providers"), api.get<Integration[]>("/integrations")]);
+    setProviders(p); setItems(i);
+  }, []);
+  useEffect(() => { load().catch(toastError); }, [load]);
+
+  const run = async (i: Integration, action: "test" | "sync") => {
+    setBusy((b) => ({ ...b, [i.id]: action }));
+    try {
+      if (action === "test") {
+        const r = await api.post<{ ok: boolean; message: string }>(`/integrations/${i.id}/test`);
+        push(r.message, r.ok ? "success" : "error");
+      } else {
+        const r = await api.post<Integration>(`/integrations/${i.id}/sync`);
+        setItems((list) => list.map((x) => (x.id === r.id ? r : x)));
+        push(r.last_status === "ok" ? `${r.name}: sync complete` : r.last_error, r.last_status === "ok" ? "success" : "error");
+        await loadChannels();
+      }
+    } catch (e) { toastError(e); } finally { setBusy((b) => { const n = { ...b }; delete n[i.id]; return n; }); }
+  };
+
+  const remove = async (i: Integration) => {
+    if (!confirm(`Disconnect ${i.name}? Synced contacts, deals and posts stay in the CRM.`)) return;
+    try { await api.del(`/integrations/${i.id}`); setItems((l) => l.filter((x) => x.id !== i.id)); } catch (e) { toastError(e); }
+  };
+
+  const byKey = Object.fromEntries(providers.map((p) => [p.key, p]));
+
+  return (
+    <div className="page">
+      <header className="page-head">
+        <div><h1>Integrations</h1><p className="muted">Connect your platforms. Followers, posts, customers and sales sync in automatically.</p></div>
+      </header>
+
+      <section className="integration-grid">
+        {providers.map((p) => {
+          const count = items.filter((i) => i.provider === p.key).length;
+          return (
+            <article key={p.key} className="card provider-card">
+              <div className="row-between"><strong>{p.name}</strong>{count > 0 && <Badge tone="green">{count} connected</Badge>}</div>
+              <p className="muted small">{p.summary}</p>
+              <ul className="small sync-list">{p.syncs.map((s) => <li key={s}>{s}</li>)}</ul>
+              <button className="btn btn-primary btn-sm" onClick={() => setEditing({ provider: p })}>
+                {count ? `+ Connect another` : `Connect ${p.name}`}
+              </button>
+            </article>
+          );
+        })}
+      </section>
+
+      <section className="card">
+        <h3>Connections</h3>
+        {items.length === 0 ? <Empty title="Nothing connected yet">Pick a platform above to get started.</Empty> : (
+          <div className="integration-list">
+            {items.map((i) => {
+              const p = byKey[i.provider];
+              const s = summary(i.last_result);
+              return (
+                <div key={i.id} className="integration-row" data-testid={`integration-${i.id}`}>
+                  <div className="integration-main">
+                    <div className="row">
+                      <strong>{i.name}</strong>
+                      <Badge tone={STATUS_TONE[busy[i.id] === "sync" ? "running" : i.last_status]}>
+                        {STATUS_LABEL[busy[i.id] === "sync" ? "running" : i.last_status]}
+                      </Badge>
+                      {!i.enabled && <Badge>Paused</Badge>}
+                    </div>
+                    <div className="muted small">
+                      {p?.name ?? i.provider} → channel “{i.channel_name ?? "—"}” · last sync {dateTime(i.last_sync_at)} ·{" "}
+                      {INTERVALS.find((x) => x.v === i.sync_interval_minutes)?.l ?? `every ${i.sync_interval_minutes} min`}
+                    </div>
+                    {s && <div className="small">{s}</div>}
+                    {!i.secrets_ok && <div className="error-box small">Saved credentials can't be read (the SECRET_KEY changed). Click Edit and re-enter them.</div>}
+                    {i.last_status === "error" && i.last_error && <div className="error-box small">{i.last_error}</div>}
+                    {(i.last_result.warnings ?? []).map((w) => <div key={w} className="warn-box small">{w}</div>)}
+                  </div>
+                  <div className="row integration-actions">
+                    <button className="btn btn-sm" disabled={!!busy[i.id]} onClick={() => run(i, "test")}>{busy[i.id] === "test" ? "Testing…" : "Test"}</button>
+                    <button className="btn btn-sm btn-primary" disabled={!!busy[i.id]} onClick={() => run(i, "sync")}>{busy[i.id] === "sync" ? "Syncing…" : "Sync now"}</button>
+                    {p && <button className="btn btn-sm" onClick={() => setEditing({ provider: p, existing: i })}>Edit</button>}
+                    <button className="btn btn-sm btn-danger" onClick={() => remove(i)}>Disconnect</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {editing && (
+        <ConnectForm provider={editing.provider} existing={editing.existing} onClose={() => setEditing(null)}
+          onSaved={async (saved, isNew) => {
+            setEditing(null);
+            setItems((l) => (l.some((x) => x.id === saved.id) ? l.map((x) => (x.id === saved.id ? saved : x)) : [...l, saved]));
+            await loadChannels();
+            if (isNew) {
+              push(`${saved.name} saved. Running first sync…`, "info");
+              await run(saved, "sync");
+            }
+          }} />
+      )}
+    </div>
+  );
+}
+
+function ConnectForm({ provider, existing, onClose, onSaved }: {
+  provider: Provider; existing?: Integration; onClose: () => void; onSaved: (i: Integration, isNew: boolean) => void;
+}) {
+  const channels = useCrm((s) => s.channels);
+  const [name, setName] = useState(existing?.name ?? provider.name);
+  const [channelId, setChannelId] = useState<number | "">(existing?.channel_id ?? "");
+  const [interval, setIntervalMin] = useState(existing?.sync_interval_minutes ?? 360);
+  const [enabled, setEnabled] = useState(existing?.enabled ?? true);
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(provider.fields.map((f) => [f.key, f.secret ? "" : existing?.config[f.key] ?? f.default])));
+  const [saving, setSaving] = useState(false);
+  const [showSteps, setShowSteps] = useState(!existing);
+  const matching = channels.filter((c) => c.platform === provider.platform);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const body = { name, channel_id: channelId === "" ? null : channelId, values, enabled, sync_interval_minutes: interval };
+      const saved = existing
+        ? await api.patch<Integration>(`/integrations/${existing.id}`, body)
+        : await api.post<Integration>("/integrations", { provider: provider.key, ...body });
+      onSaved(saved, !existing);
+    } catch (err) { toastError(err); } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title={existing ? `Edit ${existing.name}` : `Connect ${provider.name}`} onClose={onClose} wide
+      footer={<>
+        <button type="button" className="btn" onClick={onClose}>Cancel</button>
+        <button type="submit" form="connect-form" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : existing ? "Save" : "Connect & sync"}</button>
+      </>}>
+      <div className="steps-box">
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowSteps(!showSteps)}>
+          {showSteps ? "▾" : "▸"} How to get these details
+        </button>
+        {showSteps && (
+          <>
+            <ol className="small">{provider.steps.map((s) => <li key={s}>{s}</li>)}</ol>
+            <a className="small" href={provider.docs_url} target="_blank" rel="noreferrer">Official docs ↗</a>
+          </>
+        )}
+      </div>
+      <form id="connect-form" className="form-grid" onSubmit={submit}>
+        <Field label="Connection name"><input value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} /></Field>
+        <Field label="Save data to channel" hint="Followers and posts are attached to this channel.">
+          <select value={channelId} onChange={(e) => setChannelId(e.target.value ? Number(e.target.value) : "")}>
+            <option value="">Create a new “{name || provider.name}” channel</option>
+            {(matching.length ? matching : channels).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </Field>
+        {provider.fields.map((f) => {
+          const saved = existing?.saved_secrets.includes(f.key);
+          return (
+            <Field key={f.key} label={`${f.label}${f.required ? "" : " (optional)"}`} hint={f.help}>
+              {f.kind === "select" ? (
+                <select value={values[f.key]} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}>
+                  {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : (
+                <input type={f.secret ? "password" : "text"} autoComplete="off" value={values[f.key]}
+                  placeholder={saved ? "•••••• saved (leave blank to keep)" : f.placeholder}
+                  required={f.required && !(f.secret && saved)}
+                  onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} />
+              )}
+            </Field>
+          );
+        })}
+        <Field label="Automatic sync">
+          <select value={interval} onChange={(e) => setIntervalMin(Number(e.target.value))}>
+            {INTERVALS.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}
+          </select>
+        </Field>
+        <label className="row small"><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> Enabled</label>
+      </form>
+      <p className="muted small">Secrets are encrypted in your CRM's database and never shown again after saving.</p>
+    </Modal>
+  );
+}

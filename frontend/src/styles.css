@@ -173,3 +173,18 @@ textarea { resize: vertical; }
   .form-grid { grid-template-columns: 1fr; } .span-2 { grid-column: auto; } .metrics { grid-template-columns: repeat(2, 1fr); }
 }
 .field input, .field select, .field textarea { width: 100%; }
+
+/* ---- integrations */
+.integration-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
+.provider-card { display: flex; flex-direction: column; gap: 8px; }
+.provider-card p { margin: 0; }
+.provider-card .btn { align-self: flex-start; margin-top: auto; }
+.sync-list { margin: 0; padding-left: 18px; color: var(--muted); }
+.integration-list { display: flex; flex-direction: column; }
+.integration-row { display: flex; justify-content: space-between; gap: 16px; padding: 14px 0; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.integration-row:first-child { border-top: none; }
+.integration-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 320px; }
+.integration-actions { align-self: flex-start; }
+.warn-box { background: var(--amber-soft); color: var(--amber); border-radius: 8px; padding: 8px 12px; }
+.steps-box { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; }
+.steps-box ol { margin: 8px 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }

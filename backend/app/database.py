@@ -38,4 +38,7 @@ def get_db() -> Generator[Session, None, None]:
 
 def init_db() -> None:
     from . import models  # noqa: F401  (register tables)
+    from .migrate import run_migrations
+
+    run_migrations(engine)          # add new columns to tables from older versions
     Base.metadata.create_all(bind=engine)
