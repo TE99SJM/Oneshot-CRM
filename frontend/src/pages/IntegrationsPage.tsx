@@ -46,6 +46,7 @@ export default function IntegrationsPage() {
   const [params, setParams] = useSearchParams();
   const opened = useRef(false);
   const [busy, setBusy] = useState<Record<number, string>>({});
+  const [ebaySetup, setEbaySetup] = useState<Integration | null>(null);
   const loadChannels = useCrm((s) => s.loadChannels);
   const push = useToasts((s) => s.push);
 
@@ -138,6 +139,11 @@ export default function IntegrationsPage() {
                   <div className="row integration-actions">
                     <button className="btn btn-sm" disabled={!!busy[i.id]} onClick={() => run(i, "test")}>{busy[i.id] === "test" ? "Testing…" : "Test"}</button>
                     <button className="btn btn-sm btn-primary" disabled={!!busy[i.id]} onClick={() => run(i, "sync")}>{busy[i.id] === "sync" ? "Syncing…" : "Sync now"}</button>
+                    {i.provider === "ebay" && (
+                      <button className={`btn btn-sm ${i.saved_secrets.includes("refresh_token") ? "" : "btn-primary"}`} onClick={() => setEbaySetup(i)}>
+                        {i.saved_secrets.includes("refresh_token") ? "eBay setup" : "Finish eBay setup"}
+                      </button>
+                    )}
                     {p && <button className="btn btn-sm" onClick={() => setEditing({ provider: p, existing: i })}>Edit</button>}
                     <button className="btn btn-sm btn-danger" onClick={() => remove(i)}>Disconnect</button>
                   </div>
@@ -154,13 +160,111 @@ export default function IntegrationsPage() {
             setEditing(null);
             setItems((l) => (l.some((x) => x.id === saved.id) ? l.map((x) => (x.id === saved.id ? saved : x)) : [...l, saved]));
             await loadChannels();
-            if (isNew) {
+            if (isNew && saved.provider === "ebay") {
+              push(`${saved.name} saved. Finish the eBay setup steps next.`, "info");
+              setEbaySetup(saved);
+            } else if (isNew) {
               push(`${saved.name} saved. Running first sync…`, "info");
               await run(saved, "sync");
             }
           }} />
       )}
+      {ebaySetup && (
+        <EbaySetup integ={ebaySetup} onClose={() => setEbaySetup(null)}
+          onChange={(u) => { setItems((l) => l.map((x) => (x.id === u.id ? u : x))); setEbaySetup(u); }}
+          onSignedIn={async (u) => { setEbaySetup(null); push("eBay connected. Pulling your orders…", "success"); await run(u, "sync"); }} />
+      )}
     </div>
+  );
+}
+
+function Copy({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button type="button" className="btn btn-sm" onClick={() => {
+      const ok = () => { setDone(true); setTimeout(() => setDone(false), 1500); };
+      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(ok).catch(() => window.prompt("Copy this:", text));
+      else window.prompt("Copy this:", text);   // plain-http LAN pages can't use the clipboard API
+    }}>{done ? "Copied" : "Copy"}</button>
+  );
+}
+
+function EbaySetup({ integ, onClose, onChange, onSignedIn }: {
+  integ: Integration; onClose: () => void; onChange: (i: Integration) => void; onSignedIn: (i: Integration) => void;
+}) {
+  const [endpoint, setEndpoint] = useState(integ.config.deletion_endpoint ?? "");
+  const [ruName, setRuName] = useState(integ.config.ru_name ?? "");
+  const [pasted, setPasted] = useState("");
+  const [busy, setBusy] = useState("");
+  const signedIn = integ.saved_secrets.includes("refresh_token");
+  const token = integ.config.verification_token ?? "";
+
+  const save = async (values: Record<string, string>, what: string) => {
+    setBusy(what);
+    try { onChange(await api.patch<Integration>(`/integrations/${integ.id}`, { values })); useToasts.getState().push("Saved", "success"); }
+    catch (e) { toastError(e); } finally { setBusy(""); }
+  };
+  const openEbay = async () => {
+    setBusy("open");
+    try {
+      if (ruName.trim() !== (integ.config.ru_name ?? "")) onChange(await api.patch<Integration>(`/integrations/${integ.id}`, { values: { ru_name: ruName.trim() } }));
+      const { url } = await api.get<{ url: string }>(`/integrations/${integ.id}/ebay/authorize`);
+      window.open(url, "_blank", "noopener");
+    } catch (e) { toastError(e); } finally { setBusy(""); }
+  };
+  const finish = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy("finish");
+    try { onSignedIn(await api.post<Integration>(`/integrations/${integ.id}/ebay/connect`, { pasted })); }
+    catch (err) { toastError(err); } finally { setBusy(""); }
+  };
+
+  return (
+    <Modal title="eBay setup" onClose={onClose} wide footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
+      <div className="ebay-setup">
+        <section className="ebay-step">
+          <h3>1. Account-deletion notices <span className="muted small">(eBay requires this once)</span></h3>
+          <p className="small">Because the CRM saves buyer details, eBay needs a public https address where it can tell the CRM
+            when a buyer closes their account (the CRM then deletes that buyer's data). The README section
+            “eBay account-deletion notices” shows the one Tailscale command that creates this address on your server.</p>
+          <Field label="Notification endpoint URL" hint="Paste this same URL on eBay's Marketplace Account Deletion page.">
+            <div className="row">
+              <input value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="https://mserver.your-tailnet.ts.net/api/ebay/account-deletion" />
+              <button type="button" className="btn btn-sm" disabled={busy === "endpoint" || !endpoint.trim().startsWith("https://")}
+                onClick={() => save({ deletion_endpoint: endpoint.trim() }, "endpoint")}>Save</button>
+              {integ.config.deletion_endpoint && <a className="btn btn-sm" href={integ.config.deletion_endpoint} target="_blank" rel="noreferrer">Check ↗</a>}
+            </div>
+          </Field>
+          <Field label="Verification token" hint="Paste this on eBay's page too. Then click Save there; eBay checks the URL right away.">
+            <div className="row"><code className="token-box" data-testid="ebay-token">{token}</code><Copy text={token} /></div>
+          </Field>
+          <p className="muted small">“Check” should open a page that says the endpoint is reachable. If it doesn't load, the Tailscale step isn't working yet.</p>
+        </section>
+
+        <section className="ebay-step">
+          <h3>2. RuName</h3>
+          <p className="small">On developer.ebay.com click <b>User Tokens</b> next to your Production keyset → “Get a Token from eBay via Your Application” →
+            <b> Add eBay Redirect URL</b>. Enter a privacy policy URL (your website is fine), tick <b>OAuth</b>, Save, and copy the RuName it shows.</p>
+          <div className="row">
+            <input value={ruName} onChange={(e) => setRuName(e.target.value)} placeholder="Your_Name-YourName-Onesho-abcdefg" />
+            <button type="button" className="btn btn-sm" disabled={busy === "ru" || !ruName.trim()} onClick={() => save({ ru_name: ruName.trim() }, "ru")}>Save</button>
+          </div>
+        </section>
+
+        <section className="ebay-step">
+          <h3>3. Sign in with eBay {signedIn && <Badge tone="green">Signed in</Badge>}</h3>
+          {signedIn && integ.config.refresh_expires_at && <p className="muted small">Sign-in is good until {dateTime(integ.config.refresh_expires_at)}. Do this step again any time to renew it.</p>}
+          <p className="small">Click the button, sign in to eBay and click <b>Agree</b>. eBay then shows a “thank you” page.
+            Copy the <b>whole address</b> from your browser's address bar on that page and paste it below within 5 minutes.</p>
+          <button type="button" className="btn btn-primary" disabled={!ruName.trim() || busy === "open"} onClick={openEbay}>Open eBay sign-in ↗</button>
+          <form onSubmit={finish} className="ebay-paste">
+            <textarea rows={3} value={pasted} onChange={(e) => setPasted(e.target.value)}
+              placeholder="https://signin.ebay.com/...&code=v%5E1.1%23i%5E1..." data-testid="ebay-paste" />
+            <button type="submit" className="btn btn-primary" disabled={!pasted.trim() || busy === "finish"}>{busy === "finish" ? "Connecting…" : "Finish sign-in"}</button>
+          </form>
+        </section>
+      </div>
+    </Modal>
   );
 }
 

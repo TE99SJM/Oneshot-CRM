@@ -29,6 +29,7 @@ export default function OrdersPage() {
   const [q, setQ] = useState("");
   const [state, setState] = useState("");
   const [fulfillment, setFulfillment] = useState("");
+  const [store, setStore] = useState("");
   const [range, setRange] = useState<Range>(() => defaultRange());
   const { from, to } = range;
   const pickRange = (preset: string) => setRange(defaultRange(preset));
@@ -40,10 +41,11 @@ export default function OrdersPage() {
     if (q.trim()) p.q = q.trim();
     if (state) p.state = state;
     if (fulfillment) p.fulfillment = fulfillment;
+    if (store) p.source = store;
     if (from) p.date_from = from;
     if (to) p.date_to = to;
     return p;
-  }, [q, state, fulfillment, from, to]);
+  }, [q, state, fulfillment, store, from, to]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -51,7 +53,7 @@ export default function OrdersPage() {
     }, 200);
     return () => clearTimeout(t);
   }, [query, offset]);
-  useEffect(() => setOffset(0), [q, state, fulfillment, from, to]);
+  useEffect(() => setOffset(0), [q, state, fulfillment, store, from, to]);
 
   const exportCsv = () => {
     const qs = new URLSearchParams(query()).toString();
@@ -62,7 +64,7 @@ export default function OrdersPage() {
   return (
     <div className="page">
       <header className="page-head">
-        <div><h1>Orders</h1><p className="muted">Orders from your store with items, payment, shipping and refund details. Shows the last 30 days unless you pick another range.</p></div>
+        <div><h1>Orders</h1><p className="muted">Orders from Square and eBay with items, payment, shipping and refund details. Shows the last 30 days unless you pick another range.</p></div>
         <button className="btn" onClick={exportCsv}>Export CSV</button>
       </header>
 
@@ -75,6 +77,9 @@ export default function OrdersPage() {
 
       <div className="toolbar">
         <input className="search" placeholder="Search customer, item, email, order #…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select value={store} onChange={(e) => setStore(e.target.value)} aria-label="Store" data-testid="order-store">
+          <option value="">All stores</option><option value="square">Square</option><option value="ebay">eBay</option>
+        </select>
         <select value={state} onChange={(e) => setState(e.target.value)}>
           <option value="">All statuses</option><option value="OPEN">Open</option><option value="COMPLETED">Completed</option><option value="CANCELED">Canceled</option>
         </select>
@@ -87,13 +92,13 @@ export default function OrdersPage() {
 
       <div className="card table-wrap">
         {!data ? <Empty title="Loading…" /> : data.items.length === 0 ? (
-          (from || to || q || state || fulfillment) ? (
+          (from || to || q || state || fulfillment || store) ? (
             <Empty title="No orders match">
-              Nothing in this date range or filter. Try <button className="link-btn" onClick={() => { pickRange("all"); setQ(""); setState(""); setFulfillment(""); }}>showing all orders</button>.
+              Nothing in this date range or filter. Try <button className="link-btn" onClick={() => { pickRange("all"); setQ(""); setState(""); setFulfillment(""); setStore(""); }}>showing all orders</button>.
             </Empty>
           ) : (
             <Empty title="No orders yet">
-              Orders appear here after you connect Square on the <Link to="/integrations">Integrations</Link> page and it syncs.
+              Orders appear here after you connect Square or eBay on the <Link to="/integrations">Integrations</Link> page and it syncs.
             </Empty>
           )
         ) : (
@@ -154,6 +159,14 @@ function OrderDrawer({ id, onClose }: { id: number; onClose: () => void }) {
   const [showRaw, setShowRaw] = useState(false);
   useEffect(() => { api.get<OrderDetail>(`/orders/${id}`).then(setO).catch(toastError); }, [id]);
   const raw = o?.raw ?? {};
+
+  if (o?.source === "ebay") {
+    return (
+      <Drawer title={<>eBay order #{o.reference} <StateBadge o={o} /></>} onClose={onClose}>
+        <EbayDetail o={o} showRaw={showRaw} setShowRaw={setShowRaw} />
+      </Drawer>
+    );
+  }
 
   return (
     <Drawer title={o ? <>Order #{o.reference} <StateBadge o={o} /></> : "Order"} onClose={onClose}>
@@ -284,5 +297,136 @@ function OrderDrawer({ id, onClose }: { id: number; onClose: () => void }) {
         </div>
       )}
     </Drawer>
+  );
+}
+
+const amt = (a?: Json) => (a && a.value !== undefined ? money(Math.abs(Number(a.value))) : "");
+const ebayAddr = (a?: Json) => (a ? [a.addressLine1, a.addressLine2,
+  [a.city, a.stateOrProvince, a.postalCode].filter(Boolean).join(" "), a.countryCode].filter(Boolean).join(", ") : "");
+const TRACK: Record<string, string> = {
+  USPS: "https://tools.usps.com/go/TrackConfirmAction?tLabels=", UPS: "https://www.ups.com/track?tracknum=",
+  FEDEX: "https://www.fedex.com/fedextrack/?trknbr=", DHL: "https://www.dhl.com/us-en/home/tracking.html?tracking-id=",
+};
+
+function EbayDetail({ o, showRaw, setShowRaw }: { o: OrderDetail; showRaw: boolean; setShowRaw: (v: boolean) => void }) {
+  const raw = o.raw ?? {};
+  const ps = raw.pricingSummary ?? {};
+  const pay = raw.paymentSummary ?? {};
+  const buyer = raw.buyer ?? {};
+  const reg = buyer.buyerRegistrationAddress ?? {};
+  const items: Json[] = raw.lineItems ?? [];
+  const tracking: Json[] = o.payments ?? [];
+  const collected = items.flatMap((li) => (li.ebayCollectAndRemitTaxes ?? []) as Json[]);
+  const collectedTotal = collected.reduce((s, t) => s + Math.abs(Number(t.amount?.value ?? 0)), 0);
+  const refunds: Json[] = pay.refunds ?? [];
+  const cancel = raw.cancelStatus ?? {};
+  return (
+    <div className="order-detail">
+      <KV rows={[
+        ["Placed", dateTime(o.ordered_at)], ["Shipped", o.closed_at ? dateTime(o.closed_at) : ""],
+        ["Last updated", dateTime(o.updated_at_ext)], ["Marketplace", o.location_name], ["Channel", o.channel_name],
+        ["Sales record #", raw.salesRecordReference], ["eBay order ID", <code key="id">{o.external_id}</code>],
+        ["Payment status", label(raw.orderPaymentStatus)], ["Shipping status", label(raw.orderFulfillmentStatus)],
+        ["Pipeline deal", o.deal_id ? <Link key="d" to="/pipeline">View in Pipeline</Link> : ""],
+      ]} />
+      <div className="row">
+        <a className="btn btn-sm" href={o.receipt_url} target="_blank" rel="noreferrer">Open in eBay Seller Hub ↗</a>
+      </div>
+
+      <Section title="Buyer">
+        <KV rows={[["Name", o.customer_name], ["eBay username", buyer.username],
+          ["Email", o.customer_email ? <a key="e" href={`mailto:${o.customer_email}`}>{o.customer_email}</a> : ""],
+          ["Phone", o.customer_phone], ["Registered address", ebayAddr(reg.contactAddress)],
+          ["Tax address", buyer.taxAddress ? [buyer.taxAddress.city, buyer.taxAddress.stateOrProvince, buyer.taxAddress.postalCode, buyer.taxAddress.countryCode].filter(Boolean).join(" ") : ""],
+          ["Contact", o.contact_id ? <Link key="c" to="/contacts">View in Contacts</Link> : ""],
+          ["Checkout note", raw.buyerCheckoutNotes]]} />
+      </Section>
+
+      <Section title={`Items (${num(o.item_count)})`}>
+        <table className="table compact">
+          <thead><tr><th>Item</th><th className="num">Qty</th><th className="num">Price</th><th className="num">Total</th></tr></thead>
+          <tbody>
+            {items.map((li, i) => (
+              <tr key={li.lineItemId ?? i}>
+                <td>
+                  <strong>{li.legacyItemId ? <a href={`https://www.ebay.com/itm/${li.legacyItemId}`} target="_blank" rel="noreferrer">{li.title}</a> : li.title}</strong>
+                  {(li.variationAspects ?? []).length > 0 && <div className="muted small">{(li.variationAspects as Json[]).map((a) => `${a.name}: ${a.value}`).join(" · ")}</div>}
+                  {li.sku && <div className="muted small">SKU {li.sku}</div>}
+                  {(li.appliedPromotions ?? []).map((p: Json, j: number) => <div key={j} className="muted small">Promo: {p.description} −{amt(p.discountAmount)}</div>)}
+                  {li.soldFormat && <div className="muted small">{label(li.soldFormat)} · {label(li.lineItemFulfillmentStatus)}</div>}
+                  {li.lineItemFulfillmentInstructions?.shipByDate && <div className="muted small">Ship by {dateTime(li.lineItemFulfillmentInstructions.shipByDate)}</div>}
+                  {(li.refunds ?? []).map((r: Json, j: number) => <div key={j} className="muted small">Refunded {amt(r.amount)} {r.refundDate ? `on ${dateTime(r.refundDate)}` : ""}</div>)}
+                </td>
+                <td className="num">{li.quantity}</td>
+                <td className="num">{amt(li.lineItemCost)}</td>
+                <td className="num">{amt(li.total) || amt(li.lineItemCost)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Section>
+
+      <Section title="Totals">
+        <KV rows={[
+          ["Item subtotal", amt(ps.priceSubtotal)], ["Discount", ps.priceDiscount ? `−${amt(ps.priceDiscount)}` : ""],
+          ["Shipping charged", amt(ps.deliveryCost)], ["Shipping discount", ps.deliveryDiscount ? `−${amt(ps.deliveryDiscount)}` : ""],
+          ["Tax you collected", Number(ps.tax?.value) ? amt(ps.tax) : ""], ["Adjustment", amt(ps.adjustment)], ["Other fees", amt(ps.fee)],
+          ["Order total", <strong key="t">{money(o.total)}</strong>],
+          ["Sales tax eBay collected", collectedTotal ? `${money(collectedTotal)} (paid by buyer, sent to the state by eBay)` : ""],
+          ["Refunded", o.refunded ? `−${money(o.refunded)}` : ""],
+          ["Net sale", <strong key="n">{money(o.net)}</strong>],
+          ["eBay fees", o.processing_fee ? `−${money(o.processing_fee)}` : ""],
+          ["You keep (approx.)", <strong key="k">{money(o.net - o.processing_fee)}</strong>],
+          ["eBay says due to you", amt(pay.totalDueSeller)],
+        ]} />
+      </Section>
+
+      <Section title="Shipping">
+        {(raw.fulfillmentStartInstructions ?? []).map((fi: Json, i: number) => {
+          const st = fi.shippingStep?.shipTo ?? {};
+          return (
+            <KV key={i} rows={[["Type", label(fi.fulfillmentInstructionsType)], ["Ship to", st.fullName], ["Company", st.companyName],
+              ["Address", ebayAddr(st.contactAddress)], ["Phone", st.primaryPhone?.phoneNumber], ["Email", st.email],
+              ["Service", fi.shippingStep?.shippingServiceCode], ["Carrier", fi.shippingStep?.shippingCarrierCode],
+              ["Estimated delivery", fi.minEstimatedDeliveryDate ? `${dateTime(fi.minEstimatedDeliveryDate)} – ${dateTime(fi.maxEstimatedDeliveryDate)}` : ""],
+              ["Shipped by eBay", fi.ebaySupportedFulfillment ? "Yes" : ""]]} />
+          );
+        })}
+        {tracking.length === 0 ? <p className="muted small">No tracking uploaded yet.</p> : tracking.map((t, i) => {
+          const base = TRACK[(t.shippingCarrierCode ?? "").toUpperCase()];
+          return (
+            <KV key={t.fulfillmentId ?? i} rows={[
+              ["Carrier", t.shippingCarrierCode], ["Tracking #", base ? <a key="t" href={base + t.shipmentTrackingNumber} target="_blank" rel="noreferrer">{t.shipmentTrackingNumber}</a> : t.shipmentTrackingNumber],
+              ["Shipped", t.shippedDate ? dateTime(t.shippedDate) : ""]]} />
+          );
+        })}
+      </Section>
+
+      <Section title="Payment">
+        {(pay.payments ?? []).length === 0 && <p className="muted small">No payment details recorded.</p>}
+        {(pay.payments as Json[] | undefined ?? []).map((p, i) => (
+          <KV key={p.paymentReferenceId ?? i} rows={[["Method", p.paymentMethod === "EBAY" ? "eBay managed payments" : label(p.paymentMethod)],
+            ["Status", label(p.paymentStatus)], ["Amount", amt(p.amount)], ["Paid at", p.paymentDate ? dateTime(p.paymentDate) : ""],
+            ["Holds", (p.paymentHolds ?? []).map((h: Json) => `${label(h.holdState)} ${amt(h.holdAmount)} ${h.holdReason ?? ""}`).join("; ")],
+            ["Reference", p.paymentReferenceId]]} />
+        ))}
+      </Section>
+
+      {(refunds.length > 0 || (cancel.cancelState && cancel.cancelState !== "NONE_REQUESTED")) && (
+        <Section title="Refunds & cancellation">
+          {refunds.map((r, i) => <KV key={r.refundId ?? i} rows={[["Refund", amt(r.amount)], ["Status", label(r.refundStatus)],
+            ["Date", r.refundDate ? dateTime(r.refundDate) : ""], ["Reference", r.refundReferenceId]]} />)}
+          {cancel.cancelState && cancel.cancelState !== "NONE_REQUESTED" && (
+            <KV rows={[["Cancellation", label(cancel.cancelState)],
+              ...((cancel.cancelRequests ?? []) as Json[]).map((c): [string, ReactNode] => [`Requested by ${label(c.cancelInitiator)}`, `${c.cancelReason ?? ""} ${c.cancelRequestedDate ? dateTime(c.cancelRequestedDate) : ""}`])]} />
+          )}
+        </Section>
+      )}
+
+      <Section title="Everything eBay sent">
+        <button className="btn btn-sm" onClick={() => setShowRaw(!showRaw)}>{showRaw ? "Hide" : "Show"} full order data</button>
+        {showRaw && <pre className="raw-json">{JSON.stringify({ order: raw, shipping_fulfillments: tracking }, null, 2)}</pre>}
+      </Section>
+    </div>
   );
 }

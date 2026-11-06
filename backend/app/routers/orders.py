@@ -1,4 +1,4 @@
-"""Orders pulled from store integrations (Square), with full details."""
+"""Orders pulled from store integrations (Square, eBay), with full details."""
 import csv
 import io
 import json
@@ -16,7 +16,7 @@ from ..models import Order
 router = APIRouter(prefix="/api/orders", tags=["orders"], dependencies=[Depends(current_user)])
 
 SUMMARY_FIELDS = ["id", "source", "external_id", "channel_id", "contact_id", "deal_id", "location_id", "location_name",
-                  "reference", "state", "source_name", "customer_name", "customer_email", "customer_phone", "currency",
+                  "reference", "state", "source_name", "customer_name", "customer_email", "customer_phone", "buyer_username", "currency",
                   "subtotal", "discount_total", "tax_total", "tip_total", "service_charge_total", "total", "refunded",
                   "net", "processing_fee", "item_count", "items_summary", "fulfillment_type", "fulfillment_state",
                   "payment_summary", "receipt_url", "ordered_at", "updated_at_ext", "closed_at", "synced_at"]
@@ -30,8 +30,10 @@ def _row(o: Order) -> dict:
     return d
 
 
-def _filtered(q, state, channel_id, date_from, date_to, fulfillment):
+def _filtered(q, state, channel_id, date_from, date_to, fulfillment, source=None):
     stmt = select(Order)
+    if source:
+        stmt = stmt.where(Order.source == source)
     if q:
         like = f"%{q.strip()}%"
         stmt = stmt.where(or_(Order.reference.ilike(like), Order.customer_name.ilike(like), Order.customer_email.ilike(like),
@@ -51,9 +53,9 @@ def _filtered(q, state, channel_id, date_from, date_to, fulfillment):
 
 @router.get("")
 def list_orders(q: str | None = None, state: str | None = None, channel_id: int | None = None,
-                date_from: date | None = None, date_to: date | None = None, fulfillment: str | None = None,
+                date_from: date | None = None, date_to: date | None = None, fulfillment: str | None = None, source: str | None = None,
                 limit: int = Query(50, ge=1, le=500), offset: int = Query(0, ge=0), db: Session = Depends(get_db)):
-    stmt = _filtered(q, state, channel_id, date_from, date_to, fulfillment)
+    stmt = _filtered(q, state, channel_id, date_from, date_to, fulfillment, source)
     sub = stmt.subquery()
     agg = db.execute(select(func.count(), func.coalesce(func.sum(sub.c.total), 0), func.coalesce(func.sum(sub.c.refunded), 0),
                             func.coalesce(func.sum(sub.c.net), 0), func.coalesce(func.sum(sub.c.processing_fee), 0),
@@ -69,13 +71,13 @@ def list_orders(q: str | None = None, state: str | None = None, channel_id: int 
 
 @router.get("/export.csv")
 def export_orders(q: str | None = None, state: str | None = None, channel_id: int | None = None,
-                  date_from: date | None = None, date_to: date | None = None, fulfillment: str | None = None,
+                  date_from: date | None = None, date_to: date | None = None, fulfillment: str | None = None, source: str | None = None,
                   db: Session = Depends(get_db)):
     buf = io.StringIO()
     w = csv.writer(buf)
     cols = [f for f in SUMMARY_FIELDS if f not in ("channel_id", "contact_id", "deal_id", "location_id")]
     w.writerow(cols)
-    for o in db.scalars(_filtered(q, state, channel_id, date_from, date_to, fulfillment).order_by(Order.ordered_at.desc())):
+    for o in db.scalars(_filtered(q, state, channel_id, date_from, date_to, fulfillment, source).order_by(Order.ordered_at.desc())):
         r = _row(o)
         w.writerow([r[c] for c in cols])
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",

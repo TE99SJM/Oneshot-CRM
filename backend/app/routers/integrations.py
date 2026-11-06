@@ -11,6 +11,7 @@ from ..database import get_db
 from ..deps import current_user, get_or_404
 from ..integrations.base import SyncError
 from ..integrations.crypto import decrypt_secrets, encrypt_secrets
+from ..integrations import base, ebay
 from ..integrations.registry import PROVIDERS
 from ..integrations.service import ensure_channel, provider_meta, run_sync, serialize, test_integration
 from ..models import Channel, Integration
@@ -73,6 +74,8 @@ def create_integration(data: IntegrationIn, db: Session = Depends(get_db)):
     if data.channel_id is not None and db.get(Channel, data.channel_id) is None:
         raise HTTPException(422, "Channel not found")
     config, secrets = _split(data.provider, data.values, {}, {})
+    if data.provider == "ebay":
+        config["verification_token"] = ebay.new_verification_token()
     integ = Integration(provider=data.provider, name=data.name or PROVIDERS[data.provider].INFO.name,
                         channel_id=data.channel_id, config=json.dumps(config), secrets=encrypt_secrets(secrets),
                         enabled=data.enabled, sync_interval_minutes=data.sync_interval_minutes)
@@ -133,5 +136,43 @@ async def sync_now(integration_id: int, db: Session = Depends(get_db)):
         integ = await asyncio.to_thread(run_sync, db, integ)
     except SyncError as e:
         raise HTTPException(409, str(e)) from e
+    db.refresh(integ)
+    return serialize(integ)
+
+
+# ---------------------------------------------------------------- eBay sign-in (authorization code flow)
+class EbayConnectIn(BaseModel):
+    pasted: str = Field(min_length=1, max_length=4000)
+
+
+def _ebay(db: Session, integration_id: int) -> Integration:
+    integ = get_or_404(db, Integration, integration_id)
+    if integ.provider != "ebay":
+        raise HTTPException(422, "Not an eBay connection")
+    return integ
+
+
+@router.get("/{integration_id}/ebay/authorize")
+def ebay_authorize(integration_id: int, db: Session = Depends(get_db)):
+    integ = _ebay(db, integration_id)
+    config = json.loads(integ.config or "{}")
+    if not config.get("verification_token"):
+        config["verification_token"] = ebay.new_verification_token()
+        integ.config = json.dumps(config)
+        db.commit()
+    try:
+        return {"url": ebay.authorize_url(integ.id, config)}
+    except SyncError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+@router.post("/{integration_id}/ebay/connect")
+def ebay_connect(integration_id: int, data: EbayConnectIn, db: Session = Depends(get_db)):
+    from .ebay_public import finish_connect
+    integ = _ebay(db, integration_id)
+    try:
+        finish_connect(db, integ, ebay.extract_code(data.pasted))
+    except (SyncError, ValueError) as e:
+        raise HTTPException(422, str(e)) from e
     db.refresh(integ)
     return serialize(integ)

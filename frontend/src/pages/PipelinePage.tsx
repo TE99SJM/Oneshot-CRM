@@ -8,7 +8,9 @@ import { api } from "../api/client";
 import { DateRangePicker, Range, defaultRange, inRange } from "../components/DateRange";
 
 export default function PipelinePage() {
-  const { funnels, deals, loadDeals, moveDeal, channels } = useCrm();
+  const { funnels, deals, loadDeals, moveDeal, channels, loadFunnels } = useCrm();
+  // Syncs (Square, eBay) can create funnels, so refresh the list whenever the Pipeline opens.
+  useEffect(() => { loadFunnels().catch(toastError); }, [loadFunnels]);
   const [funnelId, setFunnelId] = useState<number | null>(null);
   const [editingDeal, setEditingDeal] = useState<Partial<Deal> | null>(null);
   const [editingFunnel, setEditingFunnel] = useState<Partial<Funnel> | null>(null);

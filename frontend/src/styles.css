@@ -208,3 +208,11 @@ textarea { resize: vertical; }
 .raw-json { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 11px; max-height: 420px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .drawer { width: min(640px, 100vw); }
 .link-btn { background: none; border: 0; padding: 0; color: var(--accent, #0f766e); text-decoration: underline; cursor: pointer; font: inherit; }
+.ebay-setup { display: grid; gap: 14px; }
+.ebay-step { border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 12px 14px; }
+.ebay-step h3 { margin: 0 0 6px; font-size: 15px; }
+.ebay-step p { margin: 4px 0 8px; }
+.ebay-step .row input { flex: 1; min-width: 0; }
+.token-box { flex: 1; min-width: 0; overflow-wrap: anywhere; padding: 6px 8px; background: var(--surface-2, #f3f4f6); border-radius: 6px; font-size: 12px; }
+.ebay-paste { display: grid; gap: 8px; margin-top: 10px; }
+.ebay-paste textarea { width: 100%; font-family: ui-monospace, monospace; font-size: 12px; }

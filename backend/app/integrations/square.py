@@ -65,21 +65,23 @@ def test(ctx: SyncContext) -> str:
     return f"Connected to Square ({len(locs)} location{'s' if len(locs) != 1 else ''}: {names})"
 
 
-def _funnel(ctx) -> tuple[Funnel, dict[str, FunnelStage]]:
-    funnel = ctx.db.scalar(select(Funnel).where(Funnel.name == FUNNEL_NAME))
+def _funnel(ctx, name: str = FUNNEL_NAME, labels: tuple[str, str, str] = ("Open order", "Paid", "Refunded / canceled"),
+            source: str = "Square") -> tuple[Funnel, dict[str, FunnelStage]]:
+    """Find or create an auto-managed sales funnel with open/won/lost stages (shared with eBay)."""
+    funnel = ctx.db.scalar(select(Funnel).where(Funnel.name == name))
     if funnel is None:
-        funnel = Funnel(name=FUNNEL_NAME, description="Created automatically from Square orders.")
-        funnel.stages = [FunnelStage(name="Open order", position=0, probability=50, kind="open"),
-                         FunnelStage(name="Paid", position=1, probability=100, kind="won"),
-                         FunnelStage(name="Refunded / canceled", position=2, probability=0, kind="lost")]
+        funnel = Funnel(name=name, description=f"Created automatically from {source} orders.")
+        funnel.stages = [FunnelStage(name=labels[0], position=0, probability=50, kind="open"),
+                         FunnelStage(name=labels[1], position=1, probability=100, kind="won"),
+                         FunnelStage(name=labels[2], position=2, probability=0, kind="lost")]
         ctx.db.add(funnel)
         ctx.db.flush()
     by_kind: dict[str, FunnelStage] = {}
     for st in sorted(funnel.stages, key=lambda s: s.position):
         by_kind.setdefault(st.kind, st)
-    for kind, name in (("open", "Open order"), ("won", "Paid"), ("lost", "Refunded / canceled")):
+    for kind, stage_name in zip(("open", "won", "lost"), labels):
         if kind not in by_kind:   # user deleted a stage: recreate it
-            st = FunnelStage(funnel_id=funnel.id, name=name, position=len(funnel.stages), kind=kind,
+            st = FunnelStage(funnel_id=funnel.id, name=stage_name, position=len(funnel.stages), kind=kind,
                              probability={"open": 50, "won": 100, "lost": 0}[kind])
             ctx.db.add(st)
             funnel.stages.append(st)

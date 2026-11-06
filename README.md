@@ -137,13 +137,15 @@ docker compose logs -f crm    # then open http://<CRM_BIND>:8000
 
 ## Orders
 
-The **Orders** tab opens on the last 30 days (pick Last 7/90 days, This year, All time or custom dates to change it) and lists every Square order with totals for gross sales, refunds, net sales and Square fees. You can search and filter by status, fulfillment type and date, and export to CSV. Click an order to see everything: line items with variations, modifiers and discounts; taxes, service charges and tips; the customer; shipping or pickup recipient, address, carrier and tracking; card brand/last 4, entry method, fees and receipt; refunds and returns; notes; and the complete raw data Square returned.
+The **Orders** tab opens on the last 30 days (pick Last 7/90 days, This year, All time or custom dates to change it) and lists every Square and eBay order (filter by store) with totals for gross sales, refunds, net sales and Square fees. You can search and filter by status, fulfillment type and date, and export to CSV. Click an order to see everything: line items with variations, modifiers and discounts; taxes, service charges and tips; the customer; shipping or pickup recipient, address, carrier and tracking; card brand/last 4, entry method, fees and receipt; refunds and returns; notes; and the complete raw data the store returned. eBay orders also show the buyer's eBay username, ship-to address, tracking numbers (with carrier links), eBay fees, sales tax eBay collected, and what eBay says is due to you.
+
+The **Pipeline** also opens on the last 30 days: it shows deals created or closed (won/lost) in the selected range. Pick **All time** to see everything.
 
 ## Importing channels
 
 Channels → **Import CSV** reads the columns `Name, Type, Platform, Handle, URL, Followers / subscribers, Monthly cost (USD), Active, Notes` (comma- or tab-separated; Excel/Google Sheets "Download as CSV" works). Type can be the on-screen label ("Website / store") or the short name. A row whose Name matches an existing channel updates it, and blank cells keep what's already there. **Export / template** downloads the same layout.
 
-## Integrations (YouTube, Facebook Page, Instagram, Square, Rumble, Twitch)
+## Integrations (YouTube, Facebook Page, Instagram, Square, eBay, Rumble, Twitch)
 
 Open **Integrations** in the sidebar, click **Connect** on a platform, follow the built-in steps, and paste
 the requested key. The first sync runs right away; after that the CRM syncs on its own schedule
@@ -155,8 +157,28 @@ the requested key. The first sync runs right away; after that the CRM syncs on i
 | Facebook Page | Page ID + long-lived Page access token (Graph API v27.0) | Followers, recent posts with reactions/comments/shares; views if the token has `read_insights` |
 | Instagram | Facebook Page ID + the same Page token with `instagram_basic` (account must be Business/Creator and linked to the Page) | Followers, recent posts/reels with likes/comments |
 | Square | Production access token | Every order (open, completed, canceled) with full details → **Orders** tab; customers and online buyers → Contacts; orders → deals in an auto-created "Square Sales" funnel (refunds subtracted) |
+| eBay | App ID + Cert ID + RuName from developer.ebay.com, then a one-time "Sign in with eBay" (see below) | Every sold order (up to 2 years) with buyer, items, shipping address, tracking, eBay fees and refunds → **Orders** tab; buyers → Contacts; orders → deals in an "eBay Sales" funnel (Needs shipping / Shipped / Refunded) |
 | Rumble | Live Stream API URL (rumble.com/account/livestream-api) and/or channel page URL | Followers, subscribers, live streams. Rumble has no public per-video stats API. |
 | Twitch | Channel name + Client ID/Secret from dev.twitch.tv/console | Follower total, live viewers, videos with views |
+
+### Connecting eBay
+
+eBay takes a few more steps than the others, but you only do them once (the sign-in lasts 18 months, and the CRM shows the expiry date).
+
+1. On [developer.ebay.com](https://developer.ebay.com) sign in with your seller account → **Hi &lt;name&gt; → Application Keys** → create a **Production** keyset.
+2. In the CRM: **Integrations → Connect eBay**, paste the **App ID** and **Cert ID**, and click Save. The **eBay setup** window opens.
+3. **Part 1, account-deletion notices.** eBay keeps new keys switched off until you give it a public https address for "a buyer closed their account" notices. The CRM handles those notices itself (it deletes that buyer's orders, deal and contact); it just needs to be reachable. On the server, run this once to make **only** the CRM's `/api/ebay` path public through Tailscale Funnel:
+
+   ```bash
+   sudo tailscale funnel --bg --set-path=/api/ebay http://127.0.0.1:3050/api/ebay
+   tailscale funnel status
+   ```
+
+   If it prints a link to enable Funnel or HTTPS, open it, click Enable, and run the command again. `funnel status` shows your address, something like `https://mserver.tail1234.ts.net`. Your endpoint URL is that address plus `/api/ebay/account-deletion`. Paste it into the CRM (Save), then click **Check**: it should say the endpoint is reachable. On eBay, open **Alerts & Notifications** (or the "Your keyset is disabled" link), choose Marketplace account deletion, enter your email, paste the same endpoint URL and the **verification token** shown in the CRM, and click Save. eBay checks it right away, and your keys switch on.
+   - Only `/api/ebay/...` is public. The rest of the CRM stays on your network/tailnet. To turn it off later: `sudo tailscale funnel --https=443 --set-path=/api/ebay off`.
+4. **Part 2, RuName.** On eBay: **User Tokens** (next to the Production keyset) → "Get a Token from eBay via Your Application" → **Add eBay Redirect URL**. Fill in a privacy policy URL (your website works), tick **OAuth**, and Save. Copy the **RuName** into the CRM.
+   - Optional: set "Your auth accepted URL" to `https://<your funnel address>/api/ebay/oauth/callback`. The sign-in then finishes by itself, and you can skip the pasting in Part 3.
+5. **Part 3, sign in.** Click **Open eBay sign-in**, sign in, and click **Agree**. Copy the whole address of the "thank you" page eBay shows, paste it into the box, and click **Finish sign-in** (within 5 minutes). The first sync pulls the last 365 days of orders (you can set up to 730).
 
 On the Channels page, cards for these platforms show **Pull live data**, which opens the connect form already pointed at that channel.
 

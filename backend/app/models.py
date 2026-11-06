@@ -160,7 +160,7 @@ class Integration(Base):
 
 
 class Order(Base):
-    """A sales order pulled from a store integration (Square). ``raw`` keeps the full original record."""
+    """A sales order pulled from a store integration (Square, eBay). ``raw`` keeps the full original record."""
     __tablename__ = "orders"
     id: Mapped[int] = mapped_column(primary_key=True)
     source: Mapped[str] = mapped_column(String(30), default="square", index=True)
@@ -176,6 +176,7 @@ class Order(Base):
     customer_name: Mapped[str] = mapped_column(String(200), default="")
     customer_email: Mapped[str] = mapped_column(String(255), default="")
     customer_phone: Mapped[str] = mapped_column(String(60), default="")
+    buyer_username: Mapped[str] = mapped_column(String(120), default="", index=True)   # eBay buyer username
     currency: Mapped[str] = mapped_column(String(3), default="USD")
     subtotal: Mapped[float] = mapped_column(Float, default=0.0)
     discount_total: Mapped[float] = mapped_column(Float, default=0.0)
