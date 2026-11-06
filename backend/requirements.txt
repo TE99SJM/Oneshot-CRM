@@ -1,0 +1,9 @@
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30
+SQLAlchemy>=2.0.36,<2.1
+pydantic>=2.9,<3
+python-dotenv>=1.0
+PyJWT>=2.9
+python-multipart>=0.0.9
+# Optional: uncomment to use PostgreSQL instead of SQLite
+# psycopg[binary]>=3.2

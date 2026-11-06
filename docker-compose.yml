@@ -1,0 +1,17 @@
+services:
+  crm:
+    build: .
+    container_name: funnelhub-crm
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - crm-data:/data
+
+volumes:
+  crm-data:
