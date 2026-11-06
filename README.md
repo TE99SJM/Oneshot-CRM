@@ -139,7 +139,7 @@ docker compose logs -f crm    # then open http://<CRM_BIND>:8000
 
 Channels → **Import CSV** reads the columns `Name, Type, Platform, Handle, URL, Followers / subscribers, Monthly cost (USD), Active, Notes` (comma- or tab-separated; Excel/Google Sheets "Download as CSV" works). Type can be the on-screen label ("Website / store") or the short name. A row whose Name matches an existing channel updates it, and blank cells keep what's already there. **Export / template** downloads the same layout.
 
-## Integrations (YouTube, Facebook Page, Square, Rumble)
+## Integrations (YouTube, Facebook Page, Instagram, Square, Rumble, Twitch)
 
 Open **Integrations** in the sidebar, click **Connect** on a platform, follow the built-in steps, and paste
 the requested key. The first sync runs right away; after that the CRM syncs on its own schedule
@@ -149,8 +149,12 @@ the requested key. The first sync runs right away; after that the CRM syncs on i
 |---|---|---|
 | YouTube | Channel @handle + Google Cloud API key (YouTube Data API v3) | Subscribers, recent uploads with views/likes/comments → Content |
 | Facebook Page | Page ID + long-lived Page access token (Graph API v27.0) | Followers, recent posts with reactions/comments/shares; views if the token has `read_insights` |
+| Instagram | Facebook Page ID + the same Page token with `instagram_basic` (account must be Business/Creator and linked to the Page) | Followers, recent posts/reels with likes/comments |
 | Square | Production access token | Customers → Contacts; completed orders → won deals in an auto-created "Square Sales" funnel (refunds subtracted) |
 | Rumble | Live Stream API URL (rumble.com/account/livestream-api) and/or channel page URL | Followers, subscribers, live streams. Rumble has no public per-video stats API. |
+| Twitch | Channel name + Client ID/Secret from dev.twitch.tv/console | Follower total, live viewers, videos with views |
+
+On the Channels page, cards for these platforms show **Pull live data**, which opens the connect form already pointed at that channel.
 
 Notes:
 - Tokens are encrypted in the database with a key derived from `SECRET_KEY`. If you change `SECRET_KEY`, re-enter tokens.

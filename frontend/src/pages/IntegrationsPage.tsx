@@ -1,10 +1,24 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { Badge, Empty, Field, Modal } from "../components/ui";
 import { dateTime, money, num } from "../format";
 import { useCrm } from "../store/crmStore";
 import { toastError, useToasts } from "../store/toastStore";
-import type { Integration, Provider } from "../types";
+import type { Channel, Integration, Provider } from "../types";
+
+/** Pre-fill connect-form values from an existing channel record. */
+function prefill(provider: string, ch?: Channel): Record<string, string> {
+  if (!ch) return {};
+  const handle = (ch.handle || "").trim();
+  const url = (ch.url || "").trim();
+  switch (provider) {
+    case "youtube": return { channel: handle || (url.match(/youtube\.com\/(@[^/?]+|channel\/(UC[\w-]+))/)?.[2] ?? url.match(/youtube\.com\/(@[^/?]+)/)?.[1] ?? "") };
+    case "rumble": return url.includes("rumble.com/c/") || url.includes("rumble.com/user/") ? { channel_url: url } : {};
+    case "twitch": return { login: url.match(/twitch\.tv\/([^/?]+)/)?.[1] ?? handle.replace(/^@/, "") };
+    default: return {};
+  }
+}
 
 const STATUS_TONE: Record<string, string> = { ok: "green", error: "red", running: "amber", never: "neutral" };
 const STATUS_LABEL: Record<string, string> = { ok: "Synced", error: "Error", running: "Syncing…", never: "Not synced yet" };
@@ -15,7 +29,7 @@ const INTERVALS = [
 const RESULT_LABEL: Record<string, string> = {
   followers: "followers", subscribers: "subscribers", total_channel_views: "channel views", posts_created: "new posts",
   posts_updated: "posts updated", contacts_created: "new contacts", contacts_updated: "contacts updated",
-  deals_created: "new deals", deals_updated: "deals updated", orders_synced: "orders", revenue_synced: "revenue",
+  live_viewers: "watching live now", deals_created: "new deals", deals_updated: "deals updated", orders_synced: "orders", revenue_synced: "revenue",
 };
 
 function summary(r: Integration["last_result"]) {
@@ -28,7 +42,9 @@ function summary(r: Integration["last_result"]) {
 export default function IntegrationsPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [items, setItems] = useState<Integration[]>([]);
-  const [editing, setEditing] = useState<{ provider: Provider; existing?: Integration } | null>(null);
+  const [editing, setEditing] = useState<{ provider: Provider; existing?: Integration; channelId?: number } | null>(null);
+  const [params, setParams] = useSearchParams();
+  const opened = useRef(false);
   const [busy, setBusy] = useState<Record<number, string>>({});
   const loadChannels = useCrm((s) => s.loadChannels);
   const push = useToasts((s) => s.push);
@@ -58,6 +74,16 @@ export default function IntegrationsPage() {
     if (!confirm(`Disconnect ${i.name}? Synced contacts, deals and posts stay in the CRM.`)) return;
     try { await api.del(`/integrations/${i.id}`); setItems((l) => l.filter((x) => x.id !== i.id)); } catch (e) { toastError(e); }
   };
+
+  useEffect(() => {
+    const key = params.get("provider");
+    const p = providers.find((x) => x.key === key);
+    if (!p || opened.current) return;
+    opened.current = true;
+    const ch = Number(params.get("channel")) || undefined;
+    setEditing({ provider: p, channelId: ch });
+    setParams({}, { replace: true });
+  }, [providers, params, setParams]);
 
   const byKey = Object.fromEntries(providers.map((p) => [p.key, p]));
 
@@ -123,7 +149,7 @@ export default function IntegrationsPage() {
       </section>
 
       {editing && (
-        <ConnectForm provider={editing.provider} existing={editing.existing} onClose={() => setEditing(null)}
+        <ConnectForm provider={editing.provider} existing={editing.existing} channelId={editing.channelId} onClose={() => setEditing(null)}
           onSaved={async (saved, isNew) => {
             setEditing(null);
             setItems((l) => (l.some((x) => x.id === saved.id) ? l.map((x) => (x.id === saved.id ? saved : x)) : [...l, saved]));
@@ -138,19 +164,20 @@ export default function IntegrationsPage() {
   );
 }
 
-function ConnectForm({ provider, existing, onClose, onSaved }: {
-  provider: Provider; existing?: Integration; onClose: () => void; onSaved: (i: Integration, isNew: boolean) => void;
+function ConnectForm({ provider, existing, channelId: presetChannel, onClose, onSaved }: {
+  provider: Provider; existing?: Integration; channelId?: number; onClose: () => void; onSaved: (i: Integration, isNew: boolean) => void;
 }) {
   const channels = useCrm((s) => s.channels);
-  const [name, setName] = useState(existing?.name ?? provider.name);
-  const [channelId, setChannelId] = useState<number | "">(existing?.channel_id ?? "");
+  const preset = channels.find((c) => c.id === presetChannel);
+  const [name, setName] = useState(existing?.name ?? preset?.name ?? provider.name);
+  const [channelId, setChannelId] = useState<number | "">(existing?.channel_id ?? preset?.id ?? "");
   const [interval, setIntervalMin] = useState(existing?.sync_interval_minutes ?? 360);
   const [enabled, setEnabled] = useState(existing?.enabled ?? true);
   const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(provider.fields.map((f) => [f.key, f.secret ? "" : existing?.config[f.key] ?? f.default])));
+    Object.fromEntries(provider.fields.map((f) => [f.key, f.secret ? "" : existing?.config[f.key] ?? prefill(provider.key, preset)[f.key] ?? f.default])));
   const [saving, setSaving] = useState(false);
   const [showSteps, setShowSteps] = useState(!existing);
-  const matching = channels.filter((c) => c.platform === provider.platform);
+  const matching = channels.filter((c) => c.platform === provider.platform || c.id === channelId);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();

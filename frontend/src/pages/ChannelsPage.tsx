@@ -1,4 +1,5 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { Badge, Empty, Field, Modal } from "../components/ui";
 import { money, num } from "../format";
@@ -15,6 +16,11 @@ function ago(iso: string | null) {
   return `synced ${Math.round(min / 1440)} days ago`;
 }
 
+// channel platform -> integration that can pull its data
+const LIVE_PROVIDERS: Record<string, string> = {
+  youtube: "youtube", facebook: "facebook", instagram: "instagram", square: "square", rumble: "rumble", twitch: "twitch",
+};
+
 function safeUrl(u: string) {
   const v = u.trim();
   if (!v) return "";
@@ -30,6 +36,7 @@ const blank: Partial<Channel> = { name: "", kind: "social", platform: "", handle
 export default function ChannelsPage() {
   const { channels, loadChannels } = useCrm();
   const toast = useToasts((s) => s.push);
+  const navigate = useNavigate();
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   useEffect(() => { api.get<Integration[]>("/integrations").then(setIntegrations).catch(() => {}); }, [channels]);
 
@@ -83,7 +90,13 @@ export default function ChannelsPage() {
                   ) : <span className="muted small">No URL yet</span>}
                   {(() => {
                     const live = integrations.filter((i) => i.channel_id === c.id && i.enabled);
-                    if (!live.length) return <Badge tone="neutral">Manual stats</Badge>;
+                    if (!live.length) {
+                      const provider = LIVE_PROVIDERS[(c.platform || "").toLowerCase()];
+                      return provider ? (
+                        <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); navigate(`/integrations?provider=${provider}&channel=${c.id}`); }}>
+                          Pull live data</button>
+                      ) : <Badge tone="neutral">Manual stats</Badge>;
+                    }
                     const i = live[0];
                     return <span title={i.last_error || undefined}><Badge tone={i.last_status === "error" ? "red" : "green"}>
                       {i.last_status === "error" ? "Live sync error" : `Live · ${ago(i.last_sync_at)}`}</Badge></span>;

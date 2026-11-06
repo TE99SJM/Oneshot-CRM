@@ -27,7 +27,7 @@ def connect(auth, provider, values, **extra):
 
 def test_providers_and_secret_masking(auth):
     keys = [p["key"] for p in auth.get("/api/integrations/providers").json()]
-    assert keys == ["youtube", "facebook", "square", "rumble"]
+    assert keys == ["youtube", "facebook", "instagram", "square", "rumble", "twitch"]
     assert auth.post("/api/integrations", json={"provider": "youtube", "values": {"channel": "@x"}}).status_code == 422
     assert auth.post("/api/integrations", json={"provider": "nope", "values": {}}).status_code == 422
     i = connect(auth, "youtube", {"channel": "@x", "api_key": "SECRET123"})
@@ -186,3 +186,60 @@ def test_migration_adds_columns(tmp_path):
     assert {"external_source", "external_id"} <= cols
     with eng.connect() as c:
         assert c.exec_driver_sql("SELECT external_source FROM contacts").scalar() == ""
+
+
+def test_instagram_sync(auth, monkeypatch):
+    def handler(req):
+        p = req.url.path
+        if p == "/v27.0/42":
+            return httpx.Response(200, json={"id": "42", "instagram_business_account": {"id": "1784"}})
+        if p == "/v27.0/1784":
+            return httpx.Response(200, json={"id": "1784", "username": "theforge_sports", "followers_count": 812})
+        if p == "/v27.0/1784/media":
+            if "view_count" in req.url.params["fields"]:
+                return httpx.Response(400, json={"error": {"message": "nonexisting field view_count"}})
+            return httpx.Response(200, json={"data": [{"id": "m1", "caption": "Reel!", "media_type": "VIDEO",
+                "permalink": "https://instagram.com/p/x", "timestamp": "2026-10-06T10:00:00+0000",
+                "like_count": 30, "comments_count": 4}]})
+        return httpx.Response(404)
+
+    mock(monkeypatch, handler)
+    i = connect(auth, "instagram", {"page_id": "42", "page_token": "T"})
+    assert "@theforge_sports" in auth.post(f"/api/integrations/{i['id']}/test").json()["message"]
+    r = auth.post(f"/api/integrations/{i['id']}/sync").json()
+    assert r["last_status"] == "ok", r
+    assert r["last_result"]["followers"] == 812 and r["last_result"]["posts_created"] == 1
+
+
+def test_instagram_not_linked(auth, monkeypatch):
+    mock(monkeypatch, lambda req: httpx.Response(200, json={"id": "42"}))
+    i = connect(auth, "instagram", {"page_id": "42", "page_token": "T"})
+    r = auth.post(f"/api/integrations/{i['id']}/sync").json()
+    assert r["last_status"] == "error" and "professional Instagram" in r["last_error"]
+
+
+def test_twitch_sync(auth, monkeypatch):
+    def handler(req):
+        if req.url.host == "id.twitch.tv":
+            assert b"client_credentials" in req.content
+            return httpx.Response(200, json={"access_token": "APP", "expires_in": 5000})
+        assert req.headers["Client-Id"] == "CID" and req.headers["Authorization"] == "Bearer APP"
+        p = req.url.path
+        if p == "/helix/users":
+            assert req.url.params["login"] == "theforge_sports"
+            return httpx.Response(200, json={"data": [{"id": "99", "login": "theforge_sports", "display_name": "TheForge"}]})
+        if p == "/helix/channels/followers":
+            return httpx.Response(200, json={"total": 250, "data": []})
+        if p == "/helix/streams":
+            return httpx.Response(200, json={"data": [{"viewer_count": 17}]})
+        if p == "/helix/videos":
+            return httpx.Response(200, json={"data": [{"id": "v9", "title": "Stream", "url": "https://twitch.tv/videos/v9",
+                "published_at": "2026-10-07T00:00:00Z", "view_count": 88}], "pagination": {}})
+        return httpx.Response(404)
+
+    mock(monkeypatch, handler)
+    i = connect(auth, "twitch", {"login": "https://www.twitch.tv/TheForge_sports", "client_id": "CID", "client_secret": "S"})
+    r = auth.post(f"/api/integrations/{i['id']}/sync").json()
+    assert r["last_status"] == "ok", r
+    assert r["last_result"]["followers"] == 250 and r["last_result"]["live_viewers"] == 17
+    assert r["last_result"]["posts_created"] == 1
