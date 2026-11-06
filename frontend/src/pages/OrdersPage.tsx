@@ -1,5 +1,6 @@
 import { ReactNode, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { DateRangePicker, Range, defaultRange } from "../components/DateRange";
 import { api } from "../api/client";
 import { Badge, Drawer, Empty, Stat } from "../components/ui";
 import { dateTime, money2 as money, num } from "../format";
@@ -23,29 +24,14 @@ function StateBadge({ o }: { o: Pick<OrderRow, "state" | "refunded" | "total"> }
   );
 }
 
-const ymd = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return ymd(d); };
-const RANGES: Record<string, () => [string, string]> = {
-  "7": () => [daysAgo(6), ""],
-  "30": () => [daysAgo(29), ""],
-  "90": () => [daysAgo(89), ""],
-  year: () => [`${new Date().getFullYear()}-01-01`, ""],
-  all: () => ["", ""],
-};
-
 export default function OrdersPage() {
   const [data, setData] = useState<OrderPage | null>(null);
   const [q, setQ] = useState("");
   const [state, setState] = useState("");
   const [fulfillment, setFulfillment] = useState("");
-  const [range, setRange] = useState("30");
-  const [from, setFrom] = useState(() => RANGES["30"]()[0]);
-  const [to, setTo] = useState("");
-  const pickRange = (r: string) => {
-    setRange(r);
-    if (RANGES[r]) { const [f, t] = RANGES[r](); setFrom(f); setTo(t); }
-  };
+  const [range, setRange] = useState<Range>(() => defaultRange());
+  const { from, to } = range;
+  const pickRange = (preset: string) => setRange(defaultRange(preset));
   const [offset, setOffset] = useState(0);
   const [open, setOpen] = useState<number | null>(null);
 
@@ -96,12 +82,7 @@ export default function OrdersPage() {
           <option value="">All fulfillment</option><option value="SHIPMENT">Shipping</option><option value="PICKUP">Pickup</option>
           <option value="DELIVERY">Delivery</option><option value="DIGITAL">Digital</option>
         </select>
-        <select value={range} onChange={(e) => pickRange(e.target.value)} aria-label="Date range" data-testid="order-range">
-          <option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option>
-          <option value="year">This year</option><option value="all">All time</option><option value="custom">Custom dates</option>
-        </select>
-        <label className="row small">From <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setRange("custom"); }} /></label>
-        <label className="row small">To <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setRange("custom"); }} /></label>
+        <DateRangePicker value={range} onChange={setRange} testId="order-range" />
       </div>
 
       <div className="card table-wrap">

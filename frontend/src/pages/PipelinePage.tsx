@@ -5,6 +5,7 @@ import { channelName, useCrm } from "../store/crmStore";
 import { toastError, useToasts } from "../store/toastStore";
 import type { Contact, Deal, Funnel, Stage, StageKind } from "../types";
 import { api } from "../api/client";
+import { DateRangePicker, Range, defaultRange, inRange } from "../components/DateRange";
 
 export default function PipelinePage() {
   const { funnels, deals, loadDeals, moveDeal, channels } = useCrm();
@@ -13,6 +14,9 @@ export default function PipelinePage() {
   const [editingFunnel, setEditingFunnel] = useState<Partial<Funnel> | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [range, setRange] = useState<Range>(() => defaultRange());
+  // A deal counts in the range if it was created or closed (won/lost) inside it.
+  const shown = (d: Deal) => (!range.from && !range.to) || inRange(d.created_at, range) || inRange(d.closed_at, range);
 
   const funnel = funnels.find((f) => f.id === funnelId) ?? funnels[0];
   useEffect(() => { if (funnel) loadDeals(funnel.id).catch(toastError); }, [funnel?.id, loadDeals]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -20,9 +24,9 @@ export default function PipelinePage() {
 
   const byStage = useMemo(() => {
     const m = new Map<number, Deal[]>();
-    deals.filter((d) => d.funnel_id === funnel?.id).forEach((d) => m.set(d.stage_id, [...(m.get(d.stage_id) ?? []), d]));
+    deals.filter((d) => d.funnel_id === funnel?.id && shown(d)).forEach((d) => m.set(d.stage_id, [...(m.get(d.stage_id) ?? []), d]));
     return m;
-  }, [deals, funnel?.id]);
+  }, [deals, funnel?.id, range]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function onDrop(e: DragEvent, stage: Stage) {
     e.preventDefault();
@@ -51,14 +55,14 @@ export default function PipelinePage() {
     );
   }
 
-  const open = funnel ? deals.filter((d) => d.funnel_id === funnel.id && d.status === "open") : [];
+  const open = funnel ? deals.filter((d) => d.funnel_id === funnel.id && d.status === "open" && shown(d)) : [];
 
   return (
     <div className="page page-full">
       <header className="page-head">
         <div>
           <h1>Pipeline</h1>
-          <p className="muted">{open.length} open deals · {money(open.reduce((s, d) => s + d.value, 0))} in play. Drag cards between stages.</p>
+          <p className="muted">{open.length} open deals · {money(open.reduce((s, d) => s + d.value, 0))} in play. Drag cards between stages. Showing deals created or closed in the selected range.</p>
         </div>
         <div className="row">
           <select value={funnel?.id} onChange={(e) => setFunnelId(Number(e.target.value))}>
@@ -69,6 +73,10 @@ export default function PipelinePage() {
           <button className="btn btn-primary" onClick={() => setEditingDeal({ title: "", value: 0, funnel_id: funnel.id, stage_id: funnel.stages[0]?.id })}>+ Deal</button>
         </div>
       </header>
+
+      <div className="toolbar">
+        <DateRangePicker value={range} onChange={setRange} testId="pipeline-range" />
+      </div>
 
       <div className="board">
         {funnel.stages.map((s) => {

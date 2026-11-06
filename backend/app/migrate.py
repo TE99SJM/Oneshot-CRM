@@ -27,4 +27,12 @@ def run_migrations(engine: Engine) -> list[str]:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
                     conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_{name} ON {table} ({name})"))
                     applied.append(f"{table}.{name}")
+        # Square deals synced before v1.5 were dated by the sync time; date them by their order instead.
+        if {"deals", "orders"} <= tables:
+            conn.execute(text(
+                "UPDATE deals SET created_at = (SELECT o.ordered_at FROM orders o WHERE o.source = 'square' "
+                "AND o.external_id = deals.external_id AND o.ordered_at IS NOT NULL) "
+                "WHERE external_source = 'square' AND EXISTS (SELECT 1 FROM orders o WHERE o.source = 'square' "
+                "AND o.external_id = deals.external_id AND o.ordered_at IS NOT NULL "
+                "AND o.ordered_at != deals.created_at)"))
     return applied

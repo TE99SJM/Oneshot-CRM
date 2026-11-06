@@ -239,6 +239,8 @@ def _save_order(ctx, o, pays, locations, contacts, funnel, stages) -> float:
     deal.title = f"Square: {short}"[:160]
     deal.value = net
     deal.closed_at = parse_dt(o.get("closed_at")) if kind != "open" else None
+    if parse_dt(o.get("created_at")):
+        deal.created_at = parse_dt(o.get("created_at"))   # date the deal by the order, not the sync
     if contact:
         deal.contact_id = contact.id
     ctx.db.flush()
