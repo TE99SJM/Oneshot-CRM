@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .database import init_db
-from .routers import activities, auth, channels, contacts, dashboard, deals, funnels, integrations, posts, system
+from .routers import activities, auth, channels, contacts, dashboard, deals, funnels, integrations, orders, posts, system
 
 
 @asynccontextmanager
@@ -48,7 +48,7 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
-for r in (system, auth, dashboard, channels, contacts, funnels, deals, posts, activities, integrations):
+for r in (system, auth, dashboard, channels, contacts, funnels, deals, posts, activities, integrations, orders):
     app.include_router(r.router)
 
 # Serve the compiled React app (if it has been built) as a single-page application.

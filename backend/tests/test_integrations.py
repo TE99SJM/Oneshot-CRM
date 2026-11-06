@@ -114,14 +114,32 @@ def test_square_sync(auth, monkeypatch):
         if p == "/v2/customers":
             return httpx.Response(200, json={"customers": [{"id": "C1", "given_name": "Ann", "family_name": "Lee",
                                                               "email_address": "ann@x.com"}]})
+        if p == "/v2/payments":
+            return httpx.Response(200, json={"payments": [{"id": "P1", "order_id": "O1", "source_type": "CARD",
+                "card_details": {"card": {"card_brand": "VISA", "last_4": "4242"}},
+                "processing_fee": [{"amount_money": {"amount": 105}}], "receipt_url": "https://squareup.com/receipt/P1"}]})
         if p == "/v2/orders/search":
             body = json.loads(req.content)
             assert body["location_ids"] == ["L1"]
+            assert "OPEN" in body["query"]["filter"]["state_filter"]["states"]
             return httpx.Response(200, json={"orders": [
-                {"id": "O1", "customer_id": "C1", "closed_at": "2026-10-03T15:00:00Z", "state": "COMPLETED",
-                 "total_money": {"amount": 2599, "currency": "USD"}, "line_items": [{"name": "Hat"}]},
-                {"id": "O2", "closed_at": "2026-10-04T15:00:00Z", "total_money": {"amount": 1000},
-                 "return_amounts": {"total_money": {"amount": 1000}}, "line_items": [{"name": "Mug"}]}]})
+                {"id": "O1", "location_id": "L1", "customer_id": "C1", "created_at": "2026-10-03T14:00:00Z",
+                 "updated_at": "2026-10-03T15:00:00Z", "closed_at": "2026-10-03T15:00:00Z", "state": "COMPLETED",
+                 "source": {"name": "Square Online"},
+                 "total_money": {"amount": 2599, "currency": "USD"}, "total_tax_money": {"amount": 199},
+                 "line_items": [{"name": "Hat", "variation_name": "Black", "quantity": "2",
+                                 "gross_sales_money": {"amount": 2400}}],
+                 "fulfillments": [{"type": "SHIPMENT", "state": "COMPLETED", "shipment_details": {"recipient": {
+                     "display_name": "Ann Lee", "email_address": "ann@x.com",
+                     "address": {"address_line_1": "1 Main St", "locality": "Wadena"}}, "tracking_number": "1Z", "carrier": "UPS"}}]},
+                {"id": "O2", "location_id": "L1", "created_at": "2026-10-04T15:00:00Z", "state": "COMPLETED",
+                 "closed_at": "2026-10-04T15:00:00Z", "total_money": {"amount": 1000},
+                 "return_amounts": {"total_money": {"amount": 1000}}, "line_items": [{"name": "Mug", "quantity": "1"}]},
+                {"id": "O3", "location_id": "L1", "created_at": "2026-10-05T15:00:00Z", "state": "OPEN",
+                 "total_money": {"amount": 500}, "line_items": [{"name": "Sticker", "quantity": "1"}],
+                 "fulfillments": [{"type": "PICKUP", "state": "PROPOSED", "pickup_details": {"recipient": {
+                     "display_name": "Bob Ray", "email_address": "bob@x.com"}}}]},
+            ]})
         return httpx.Response(404)
 
     mock(monkeypatch, handler)
@@ -129,17 +147,29 @@ def test_square_sync(auth, monkeypatch):
     assert auth.post(f"/api/integrations/{i['id']}/test").json()["ok"] is True
     r = auth.post(f"/api/integrations/{i['id']}/sync").json()
     assert r["last_status"] == "ok", r
-    assert r["last_result"]["revenue_synced"] == 25.99 and r["last_result"]["contacts_created"] == 1
+    assert r["last_result"]["revenue_synced"] == 30.99 and r["last_result"]["orders_created"] == 3
     auth.post(f"/api/integrations/{i['id']}/sync")
     deals = auth.get("/api/deals").json()
     deals = deals["items"] if isinstance(deals, dict) else deals
-    assert len(deals) == 2
-    won = next(d for d in deals if d["external_id"] == "O1")
-    assert won["status"] == "won" and won["value"] == 25.99 and won["contact_id"]
-    assert next(d for d in deals if d["external_id"] == "O2")["status"] == "lost"
+    assert len(deals) == 3
+    by = {d["external_id"]: d for d in deals}
+    assert by["O1"]["status"] == "won" and by["O1"]["value"] == 25.99 and by["O1"]["contact_id"]
+    assert by["O2"]["status"] == "lost" and by["O3"]["status"] == "open"
     assert any(f["name"] == "Square Sales" for f in auth.get("/api/funnels").json())
-    contacts = auth.get("/api/contacts").json()["items"]
-    assert contacts[0]["status"] == "customer" and contacts[0]["external_source"] == "square"
+    contacts = {c["email"]: c for c in auth.get("/api/contacts").json()["items"]}
+    assert contacts["ann@x.com"]["external_source"] == "square" and "bob@x.com" in contacts  # online buyer became a contact
+
+    orders = auth.get("/api/orders").json()
+    assert orders["total"] == 3 and orders["summary"]["refunded"] == 10.0 and orders["summary"]["fees"] == 1.05
+    o1 = next(o for o in orders["items"] if o["external_id"] == "O1")
+    assert o1["payment_summary"] == "Visa ••4242" and o1["fulfillment_type"] == "SHIPMENT"
+    assert o1["customer_name"] == "Ann Lee" and o1["items_summary"] == "Hat (Black) ×2" and o1["tax_total"] == 1.99
+    assert o1["source_name"] == "Square Online" and o1["location_name"] == "Shop"
+    d = auth.get(f"/api/orders/{o1['id']}").json()
+    assert d["raw"]["fulfillments"][0]["shipment_details"]["tracking_number"] == "1Z" and d["payments"][0]["id"] == "P1"
+    assert auth.get("/api/orders", params={"state": "open"}).json()["total"] == 1
+    assert auth.get("/api/orders", params={"q": "sticker"}).json()["items"][0]["external_id"] == "O3"
+    assert auth.get("/api/orders/export.csv").text.startswith("id,source,external_id")
 
 
 def test_rumble_api_and_page_fallback(auth, monkeypatch):

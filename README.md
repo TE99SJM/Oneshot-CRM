@@ -135,6 +135,10 @@ docker compose logs -f crm    # then open http://<CRM_BIND>:8000
 - The `env_file … required: false` syntax needs Docker Compose v2.24+. On older versions, change it to `env_file: .env` and make sure `.env` exists.
 - Put it behind HTTPS (Caddy, Nginx Proxy Manager, Cloudflare Tunnel, Tailscale) before exposing it to the internet. The API requires login for everything except `/api/health` and `/api/auth/status|setup|login`; `/api/auth/setup` only works while no account exists.
 
+## Orders
+
+The **Orders** tab lists every Square order with totals for gross sales, refunds, net sales and Square fees. You can search and filter by status, fulfillment type and date, and export to CSV. Click an order to see everything: line items with variations, modifiers and discounts; taxes, service charges and tips; the customer; shipping or pickup recipient, address, carrier and tracking; card brand/last 4, entry method, fees and receipt; refunds and returns; notes; and the complete raw data Square returned.
+
 ## Importing channels
 
 Channels → **Import CSV** reads the columns `Name, Type, Platform, Handle, URL, Followers / subscribers, Monthly cost (USD), Active, Notes` (comma- or tab-separated; Excel/Google Sheets "Download as CSV" works). Type can be the on-screen label ("Website / store") or the short name. A row whose Name matches an existing channel updates it, and blank cells keep what's already there. **Export / template** downloads the same layout.
@@ -150,7 +154,7 @@ the requested key. The first sync runs right away; after that the CRM syncs on i
 | YouTube | Channel @handle + Google Cloud API key (YouTube Data API v3) | Subscribers, recent uploads with views/likes/comments → Content |
 | Facebook Page | Page ID + long-lived Page access token (Graph API v27.0) | Followers, recent posts with reactions/comments/shares; views if the token has `read_insights` |
 | Instagram | Facebook Page ID + the same Page token with `instagram_basic` (account must be Business/Creator and linked to the Page) | Followers, recent posts/reels with likes/comments |
-| Square | Production access token | Customers → Contacts; completed orders → won deals in an auto-created "Square Sales" funnel (refunds subtracted) |
+| Square | Production access token | Every order (open, completed, canceled) with full details → **Orders** tab; customers and online buyers → Contacts; orders → deals in an auto-created "Square Sales" funnel (refunds subtracted) |
 | Rumble | Live Stream API URL (rumble.com/account/livestream-api) and/or channel page URL | Followers, subscribers, live streams. Rumble has no public per-video stats API. |
 | Twitch | Channel name + Client ID/Secret from dev.twitch.tv/console | Follower total, live viewers, videos with views |
 

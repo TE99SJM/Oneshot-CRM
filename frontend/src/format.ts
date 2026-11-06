@@ -21,3 +21,6 @@ export const toLocalInput = (s: string | null | undefined) => {
 export const fromLocalInput = (v: string) => (v ? new Date(v).toISOString().slice(0, 19) : null);
 
 export const fullName = (c: { first_name: string; last_name: string }) => `${c.first_name} ${c.last_name}`.trim();
+/** Money with cents, for orders and receipts. */
+export const money2 = (n: number | null | undefined) =>
+  (n ?? 0).toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });

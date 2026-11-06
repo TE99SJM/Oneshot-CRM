@@ -157,3 +157,47 @@ class Integration(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     channel: Mapped[Channel | None] = relationship()
+
+
+class Order(Base):
+    """A sales order pulled from a store integration (Square). ``raw`` keeps the full original record."""
+    __tablename__ = "orders"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(30), default="square", index=True)
+    external_id: Mapped[str] = mapped_column(String(120), index=True)
+    channel_id: Mapped[int | None] = mapped_column(ForeignKey("channels.id", ondelete="SET NULL"), nullable=True)
+    contact_id: Mapped[int | None] = mapped_column(ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True)
+    deal_id: Mapped[int | None] = mapped_column(ForeignKey("deals.id", ondelete="SET NULL"), nullable=True)
+    location_id: Mapped[str] = mapped_column(String(60), default="")
+    location_name: Mapped[str] = mapped_column(String(160), default="")
+    reference: Mapped[str] = mapped_column(String(120), default="")          # ticket / reference / short id
+    state: Mapped[str] = mapped_column(String(20), default="", index=True)   # OPEN|COMPLETED|CANCELED|DRAFT
+    source_name: Mapped[str] = mapped_column(String(120), default="")        # e.g. "Square Online", "Point of Sale"
+    customer_name: Mapped[str] = mapped_column(String(200), default="")
+    customer_email: Mapped[str] = mapped_column(String(255), default="")
+    customer_phone: Mapped[str] = mapped_column(String(60), default="")
+    currency: Mapped[str] = mapped_column(String(3), default="USD")
+    subtotal: Mapped[float] = mapped_column(Float, default=0.0)
+    discount_total: Mapped[float] = mapped_column(Float, default=0.0)
+    tax_total: Mapped[float] = mapped_column(Float, default=0.0)
+    tip_total: Mapped[float] = mapped_column(Float, default=0.0)
+    service_charge_total: Mapped[float] = mapped_column(Float, default=0.0)
+    total: Mapped[float] = mapped_column(Float, default=0.0)
+    refunded: Mapped[float] = mapped_column(Float, default=0.0)
+    net: Mapped[float] = mapped_column(Float, default=0.0)
+    processing_fee: Mapped[float] = mapped_column(Float, default=0.0)
+    item_count: Mapped[float] = mapped_column(Float, default=0.0)
+    items_summary: Mapped[str] = mapped_column(Text, default="")
+    fulfillment_type: Mapped[str] = mapped_column(String(40), default="")
+    fulfillment_state: Mapped[str] = mapped_column(String(40), default="")
+    payment_summary: Mapped[str] = mapped_column(String(200), default="")
+    receipt_url: Mapped[str] = mapped_column(String(500), default="")
+    ordered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    updated_at_ext: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    raw: Mapped[str] = mapped_column(Text, default="{}")
+    payments: Mapped[str] = mapped_column(Text, default="[]")
+    synced_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    channel: Mapped[Channel | None] = relationship()
+    contact: Mapped[Contact | None] = relationship()

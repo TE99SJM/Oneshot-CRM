@@ -3,7 +3,9 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
-from ..models import Contact, Deal, Funnel, FunnelStage, utcnow
+import json
+
+from ..models import Contact, Deal, Funnel, FunnelStage, Order, utcnow
 from .base import FieldSpec, ProviderInfo, SyncContext, SyncError, check_response, find_external, parse_dt
 
 SQUARE_VERSION = "2026-09-16"
@@ -14,7 +16,7 @@ MAX_ORDERS = 5000
 INFO = ProviderInfo(
     key="square", name="Square", platform="square", channel_kind="direct",
     summary="Your Square customers become contacts and completed orders become won deals.",
-    syncs=["Customers → Contacts", "Completed orders → won deals (Square Sales funnel)", "Refunds subtracted from deal value"],
+    syncs=["Every order with full details → Orders tab", "Customers → Contacts", "Orders → deals in a Square Sales funnel (paid = won, open = in progress)", "Payments, fees, refunds, fulfillment and shipping info"],
     fields=[
         FieldSpec("access_token", "Access token", secret=True, placeholder="EAAA...",
                   help="Production access token from the Square Developer Console."),
@@ -119,49 +121,186 @@ def _money(m) -> float:
     return (m or {}).get("amount", 0) / 100.0
 
 
+def _payments(ctx, since, loc_ids) -> dict[str, list[dict]]:
+    """Payments (card brand/last4, fees, receipt) grouped by order id."""
+    by_order: dict[str, list[dict]] = {}
+    for loc in loc_ids:
+        cursor, n = None, 0
+        while n < MAX_ORDERS * 2:
+            params = {"begin_time": since.strftime("%Y-%m-%dT%H:%M:%SZ"), "location_id": loc, "limit": 100,
+                      "sort_order": "DESC"}
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                data = _get(ctx, "/v2/payments", **params)
+            except SyncError as e:
+                ctx.warnings.append(f"Payment details unavailable ({e}).")
+                return by_order
+            for p in data.get("payments", []):
+                n += 1
+                if p.get("order_id"):
+                    by_order.setdefault(p["order_id"], []).append(p)
+            cursor = data.get("cursor")
+            if not cursor:
+                break
+    return by_order
+
+
+def _contact_for(ctx, o, contacts, name, email, phone) -> Contact | None:
+    if o.get("customer_id") and o["customer_id"] in contacts:
+        return contacts[o["customer_id"]]
+    if not email:
+        return None
+    c = ctx.db.scalar(select(Contact).where(Contact.email == email.lower()))
+    if c is None:
+        first, _, last = (name or email.split("@")[0]).partition(" ")
+        c = Contact(first_name=first[:80] or "Customer", last_name=last[:80], email=email.lower(), phone=phone or "",
+                    status="customer", source_channel_id=ctx.channel.id, tags="square")
+        ctx.db.add(c)
+        ctx.db.flush()
+        ctx.count("contacts_created")
+    elif c.status in ("lead", "prospect"):
+        c.status = "customer"
+    return c
+
+
+def _recipient(o) -> dict:
+    for f in o.get("fulfillments") or []:
+        for k in ("shipment_details", "pickup_details", "delivery_details", "digital_details"):
+            r = (f.get(k) or {}).get("recipient")
+            if r:
+                return r
+    return {}
+
+
+def _payment_summary(o, pays) -> str:
+    parts = []
+    for p in pays or []:
+        card = (p.get("card_details") or {}).get("card") or {}
+        if card:
+            parts.append(f"{card.get('card_brand', 'Card').replace('_', ' ').title()} ••{card.get('last_4', '')}")
+        else:
+            parts.append((p.get("source_type") or "Payment").replace("_", " ").title())
+    if not parts:
+        for t in o.get("tenders") or []:
+            card = (t.get("card_details") or {}).get("card") or {}
+            parts.append(f"{card.get('card_brand', '').replace('_', ' ').title()} ••{card.get('last_4', '')}".strip()
+                         if card else (t.get("type") or "").replace("_", " ").title())
+    return ", ".join(dict.fromkeys(p for p in parts if p))[:200]
+
+
+def _save_order(ctx, o, pays, locations, contacts, funnel, stages) -> float:
+    order = ctx.db.scalar(select(Order).where(Order.source == "square", Order.external_id == o["id"]))
+    if not pays and order is not None:
+        pays = json.loads(order.payments or "[]")   # payment is older than this sync window: keep what we had
+    gross = _money(o.get("total_money"))
+    refunded = _money((o.get("return_amounts") or {}).get("total_money"))
+    refunded = max(refunded, sum(_money(r.get("amount_money")) for r in o.get("refunds") or []
+                                 if r.get("status") in (None, "APPROVED", "COMPLETED")))
+    net = round(max(gross - refunded, 0.0), 2)
+    items = o.get("line_items") or []
+    names = [f"{li.get('name') or 'Item'}{' (' + li['variation_name'] + ')' if li.get('variation_name') and li.get('variation_name') != 'Regular' else ''}"
+             + (f" ×{li.get('quantity')}" if li.get("quantity") not in (None, "1") else "") for li in items]
+    summary = ", ".join(names)
+    qty = 0.0
+    for li in items:
+        try:
+            qty += float(li.get("quantity") or 0)
+        except ValueError:
+            pass
+    rec = _recipient(o)
+    name = rec.get("display_name") or ""
+    email = (rec.get("email_address") or next((p.get("buyer_email_address") for p in pays if p.get("buyer_email_address")), "") or "")
+    phone = rec.get("phone_number") or ""
+    contact = _contact_for(ctx, o, contacts, name, email, phone)
+    if contact and not name:
+        name = f"{contact.first_name} {contact.last_name}".strip()
+        email = email or contact.email
+    ful = (o.get("fulfillments") or [{}])[0]
+    state = o.get("state", "")
+    fee = sum(_money(f.get("amount_money")) for p in pays for f in p.get("processing_fee") or [])
+    fee = fee or sum(_money(t.get("processing_fee_money")) for t in o.get("tenders") or [])
+
+    # Deal in the Square Sales funnel
+    fully_refunded = gross > 0 and refunded >= gross
+    kind = "lost" if state == "CANCELED" or fully_refunded else ("won" if state == "COMPLETED" else "open")
+    stage = stages[kind]
+    deal = find_external(ctx.db, Deal, "square", o["id"])
+    if deal is None:
+        deal = Deal(external_source="square", external_id=o["id"], funnel_id=funnel.id, stage_id=stage.id,
+                    status=stage.kind, channel_id=ctx.channel.id)
+        ctx.db.add(deal)
+        ctx.count("deals_created")
+    else:
+        ctx.count("deals_updated")
+        if deal.status != stage.kind or deal.funnel_id != funnel.id:
+            deal.funnel_id, deal.stage_id, deal.status = funnel.id, stage.id, stage.kind
+    short = (summary[:120] + ("…" if len(summary) > 120 else "")) or "Square sale"
+    deal.title = f"Square: {short}"[:160]
+    deal.value = net
+    deal.closed_at = parse_dt(o.get("closed_at")) if kind != "open" else None
+    if contact:
+        deal.contact_id = contact.id
+    ctx.db.flush()
+
+    if order is None:
+        order = Order(source="square", external_id=o["id"], channel_id=ctx.channel.id)
+        ctx.db.add(order)
+        ctx.count("orders_created")
+    else:
+        ctx.count("orders_updated")
+    order.deal_id, order.contact_id = deal.id, contact.id if contact else order.contact_id
+    order.location_id = o.get("location_id", "")
+    order.location_name = locations.get(order.location_id, "")
+    order.reference = (o.get("ticket_name") or o.get("reference_id") or o["id"][-6:].upper())[:120]
+    order.state = state
+    order.source_name = ((o.get("source") or {}).get("name") or "")[:120]
+    order.customer_name, order.customer_email, order.customer_phone = name[:200], (email or "")[:255], phone[:60]
+    order.currency = (o.get("total_money") or {}).get("currency", "USD")
+    order.subtotal = round(sum(_money(li.get("gross_sales_money")) for li in items), 2)
+    order.discount_total = _money(o.get("total_discount_money"))
+    order.tax_total = _money(o.get("total_tax_money"))
+    order.tip_total = _money(o.get("total_tip_money"))
+    order.service_charge_total = _money(o.get("total_service_charge_money"))
+    order.total, order.refunded, order.net = gross, round(refunded, 2), net
+    order.processing_fee = round(fee, 2)
+    order.item_count, order.items_summary = qty, summary
+    order.fulfillment_type = (ful.get("type") or "")[:40]
+    order.fulfillment_state = (ful.get("state") or "")[:40]
+    order.payment_summary = _payment_summary(o, pays)
+    order.receipt_url = next((p.get("receipt_url") for p in pays if p.get("receipt_url")), "") or ""
+    order.ordered_at = parse_dt(o.get("created_at"))
+    order.updated_at_ext = parse_dt(o.get("updated_at"))
+    order.closed_at = parse_dt(o.get("closed_at"))
+    order.raw = json.dumps(o)
+    order.payments = json.dumps(pays)
+    return 0.0 if kind == "lost" else net
+
+
 def sync(ctx: SyncContext) -> None:
-    locations = _locations(ctx)
-    if not locations:
+    locs = _locations(ctx)
+    if not locs:
         raise SyncError("Square: no active locations found on this account")
+    locations = {loc["id"]: loc.get("name", "") for loc in locs}
     contacts = _sync_customers(ctx)
     funnel, stages = _funnel(ctx)
 
     days = max(1, min(int(ctx.config.get("history_days") or 365), 3650))
-    since = (ctx.last_sync_at - timedelta(days=2)) if ctx.last_sync_at else (utcnow() - timedelta(days=days))
-    loc_ids = [loc["id"] for loc in locations][:10]
+    # Re-pull everything once after upgrading to the Orders tab, then only changes since the last sync.
+    has_orders = ctx.db.scalar(select(Order.id).where(Order.source == "square").limit(1)) is not None
+    since = (ctx.last_sync_at - timedelta(days=2)) if (ctx.last_sync_at and has_orders) else (utcnow() - timedelta(days=days))
+    loc_ids = list(locations)[:10]
+    pays = _payments(ctx, since - timedelta(days=1), loc_ids)
     body = {"location_ids": loc_ids, "limit": 500, "return_entries": False, "query": {
-        "filter": {"state_filter": {"states": ["COMPLETED"]},
-                   "date_time_filter": {"closed_at": {"start_at": since.strftime("%Y-%m-%dT%H:%M:%SZ")}}},
-        "sort": {"sort_field": "CLOSED_AT", "sort_order": "DESC"}}}
+        "filter": {"state_filter": {"states": ["OPEN", "COMPLETED", "CANCELED"]},
+                   "date_time_filter": {"updated_at": {"start_at": since.strftime("%Y-%m-%dT%H:%M:%SZ")}}},
+        "sort": {"sort_field": "UPDATED_AT", "sort_order": "DESC"}}}
     total, revenue = 0, 0.0
     while total < MAX_ORDERS:
         data = _post(ctx, "/v2/orders/search", body)
         for o in data.get("orders", []):
             total += 1
-            gross = _money(o.get("total_money"))
-            refunded = _money((o.get("return_amounts") or {}).get("total_money"))
-            value = round(max(gross - refunded, 0.0), 2)
-            items = [li.get("name") or "Item" for li in o.get("line_items", [])]
-            title = (", ".join(items[:3]) + (f" +{len(items) - 3} more" if len(items) > 3 else "")) or "Square sale"
-            fully_refunded = gross > 0 and refunded >= gross
-            stage = stages["lost"] if fully_refunded else stages["won"]
-            deal = find_external(ctx.db, Deal, "square", o["id"])
-            if deal is None:
-                deal = Deal(external_source="square", external_id=o["id"], funnel_id=funnel.id, stage_id=stage.id,
-                            status=stage.kind, channel_id=ctx.channel.id)
-                ctx.db.add(deal)
-                ctx.count("deals_created")
-            else:
-                ctx.count("deals_updated")
-                if deal.status != stage.kind or deal.funnel_id != funnel.id:
-                    deal.funnel_id, deal.stage_id, deal.status = funnel.id, stage.id, stage.kind
-            deal.title = f"Square: {title}"[:160]
-            deal.value = value
-            deal.closed_at = parse_dt(o.get("closed_at")) or deal.closed_at
-            if o.get("customer_id") and o["customer_id"] in contacts:
-                deal.contact_id = contacts[o["customer_id"]].id
-            if not fully_refunded:
-                revenue += value
+            revenue += _save_order(ctx, o, pays.get(o["id"], []), locations, contacts, funnel, stages)
         body["cursor"] = data.get("cursor")
         if not body["cursor"]:
             break

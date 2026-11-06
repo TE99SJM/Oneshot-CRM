@@ -68,3 +68,19 @@ export interface Integration {
   sync_interval_minutes: number; last_sync_at: string | null; last_status: "never" | "ok" | "error" | "running";
   last_error: string; last_result: Record<string, unknown> & { warnings?: string[] }; created_at: string;
 }
+
+export interface OrderRow {
+  id: number; source: string; external_id: string; channel_id: number | null; channel_name: string | null;
+  contact_id: number | null; deal_id: number | null; location_id: string; location_name: string; reference: string;
+  state: string; source_name: string; customer_name: string; customer_email: string; customer_phone: string;
+  currency: string; subtotal: number; discount_total: number; tax_total: number; tip_total: number;
+  service_charge_total: number; total: number; refunded: number; net: number; processing_fee: number;
+  item_count: number; items_summary: string; fulfillment_type: string; fulfillment_state: string;
+  payment_summary: string; receipt_url: string; ordered_at: string | null; updated_at_ext: string | null;
+  closed_at: string | null; synced_at: string | null;
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type Json = any;
+export interface OrderDetail extends OrderRow { raw: Json; payments: Json[] }
+export interface OrderSummary { orders: number; gross: number; refunded: number; net: number; fees: number; tax: number; tips: number; average: number }
+export interface OrderPage { items: OrderRow[]; total: number; summary: OrderSummary }
