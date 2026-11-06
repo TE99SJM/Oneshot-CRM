@@ -137,7 +137,7 @@ docker compose logs -f crm    # then open http://<CRM_BIND>:8000
 
 ## Orders
 
-The **Orders** tab lists every Square order with totals for gross sales, refunds, net sales and Square fees. You can search and filter by status, fulfillment type and date, and export to CSV. Click an order to see everything: line items with variations, modifiers and discounts; taxes, service charges and tips; the customer; shipping or pickup recipient, address, carrier and tracking; card brand/last 4, entry method, fees and receipt; refunds and returns; notes; and the complete raw data Square returned.
+The **Orders** tab opens on the last 30 days (pick Last 7/90 days, This year, All time or custom dates to change it) and lists every Square order with totals for gross sales, refunds, net sales and Square fees. You can search and filter by status, fulfillment type and date, and export to CSV. Click an order to see everything: line items with variations, modifiers and discounts; taxes, service charges and tips; the customer; shipping or pickup recipient, address, carrier and tracking; card brand/last 4, entry method, fees and receipt; refunds and returns; notes; and the complete raw data Square returned.
 
 ## Importing channels
 

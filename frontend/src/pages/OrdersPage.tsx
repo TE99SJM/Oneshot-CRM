@@ -23,13 +23,29 @@ function StateBadge({ o }: { o: Pick<OrderRow, "state" | "refunded" | "total"> }
   );
 }
 
+const ymd = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return ymd(d); };
+const RANGES: Record<string, () => [string, string]> = {
+  "7": () => [daysAgo(6), ""],
+  "30": () => [daysAgo(29), ""],
+  "90": () => [daysAgo(89), ""],
+  year: () => [`${new Date().getFullYear()}-01-01`, ""],
+  all: () => ["", ""],
+};
+
 export default function OrdersPage() {
   const [data, setData] = useState<OrderPage | null>(null);
   const [q, setQ] = useState("");
   const [state, setState] = useState("");
   const [fulfillment, setFulfillment] = useState("");
-  const [from, setFrom] = useState("");
+  const [range, setRange] = useState("30");
+  const [from, setFrom] = useState(() => RANGES["30"]()[0]);
   const [to, setTo] = useState("");
+  const pickRange = (r: string) => {
+    setRange(r);
+    if (RANGES[r]) { const [f, t] = RANGES[r](); setFrom(f); setTo(t); }
+  };
   const [offset, setOffset] = useState(0);
   const [open, setOpen] = useState<number | null>(null);
 
@@ -60,7 +76,7 @@ export default function OrdersPage() {
   return (
     <div className="page">
       <header className="page-head">
-        <div><h1>Orders</h1><p className="muted">Every order from your store, with items, payment, shipping and refund details.</p></div>
+        <div><h1>Orders</h1><p className="muted">Orders from your store with items, payment, shipping and refund details. Shows the last 30 days unless you pick another range.</p></div>
         <button className="btn" onClick={exportCsv}>Export CSV</button>
       </header>
 
@@ -80,15 +96,25 @@ export default function OrdersPage() {
           <option value="">All fulfillment</option><option value="SHIPMENT">Shipping</option><option value="PICKUP">Pickup</option>
           <option value="DELIVERY">Delivery</option><option value="DIGITAL">Digital</option>
         </select>
-        <label className="row small">From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-        <label className="row small">To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+        <select value={range} onChange={(e) => pickRange(e.target.value)} aria-label="Date range" data-testid="order-range">
+          <option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option>
+          <option value="year">This year</option><option value="all">All time</option><option value="custom">Custom dates</option>
+        </select>
+        <label className="row small">From <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setRange("custom"); }} /></label>
+        <label className="row small">To <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setRange("custom"); }} /></label>
       </div>
 
       <div className="card table-wrap">
         {!data ? <Empty title="Loading…" /> : data.items.length === 0 ? (
-          <Empty title="No orders yet">
-            Orders appear here after you connect Square on the <Link to="/integrations">Integrations</Link> page and it syncs.
-          </Empty>
+          (from || to || q || state || fulfillment) ? (
+            <Empty title="No orders match">
+              Nothing in this date range or filter. Try <button className="link-btn" onClick={() => { pickRange("all"); setQ(""); setState(""); setFulfillment(""); }}>showing all orders</button>.
+            </Empty>
+          ) : (
+            <Empty title="No orders yet">
+              Orders appear here after you connect Square on the <Link to="/integrations">Integrations</Link> page and it syncs.
+            </Empty>
+          )
         ) : (
           <table className="table orders-table">
             <thead><tr>
