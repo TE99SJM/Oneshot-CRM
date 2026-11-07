@@ -1,6 +1,8 @@
 """Connect external platforms (YouTube, Facebook Page, Square, Rumble) and sync their data."""
 import asyncio
 import json
+import secrets as secrets_mod
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -178,9 +180,13 @@ def ebay_connect(integration_id: int, data: EbayConnectIn, db: Session = Depends
     return serialize(integ)
 
 
-# ---------------------------------------------------------------- YouTube posting sign-in (Google OAuth, paste flow)
+# ---------------------------------------------------------------- YouTube posting sign-in (Google OAuth)
 class YoutubeConnectIn(BaseModel):
     pasted: str = Field(min_length=1, max_length=4000)
+
+
+class YoutubeRedirectIn(BaseModel):
+    redirect_uri: str = Field(default="", max_length=500)   # "" = copy and paste (127.0.0.1)
 
 
 def _youtube(db: Session, integration_id: int) -> Integration:
@@ -190,8 +196,64 @@ def _youtube(db: Session, integration_id: int) -> Integration:
     return integ
 
 
+def youtube_redirect_options(db: Session, integ: Integration) -> dict:
+    from ..publishing.runner import public_base
+    config = json.loads(integ.config or "{}")
+    base_url = public_base(db, None)        # e.g. the Tailscale Funnel host already used for eBay
+    return {"saved": config.get("oauth_redirect_uri") or youtube.REDIRECT_URI,
+            "loopback": youtube.REDIRECT_URI, "callback_path": youtube.CALLBACK_PATH,
+            "suggested": f"{base_url}{youtube.CALLBACK_PATH}" if base_url else ""}
+
+
+def finish_youtube_signin(db: Session, integ: Integration, code: str) -> Integration:
+    """Swap the one-time code for a long-term token and remember which channel it posts to."""
+    config, secrets = json.loads(integ.config or "{}"), decrypt_secrets(integ.secrets)
+    if not secrets.get("pkce_verifier"):
+        raise SyncError("YouTube: click “Open Google sign-in” first, then try again")
+    redirect = secrets.get("pkce_redirect") or youtube.REDIRECT_URI
+    with base.make_client() as client:
+        tokens = youtube.exchange_code(client, config, secrets, code, secrets["pkce_verifier"], redirect)
+        try:
+            ch = youtube.my_channel(client, tokens["access_token"])
+        except SyncError:
+            ch = {}
+    secrets["refresh_token"] = tokens["refresh_token"]
+    for k in ("pkce_verifier", "pkce_redirect", "oauth_state", "oauth_return_to"):
+        secrets.pop(k, None)
+    config["upload_channel_title"] = (ch.get("snippet") or {}).get("title", "")
+    config["upload_channel_id"] = ch.get("id", "")
+    integ.config, integ.secrets = json.dumps(config), encrypt_secrets(secrets)
+    db.commit()
+    db.refresh(integ)
+    return integ
+
+
+@router.get("/{integration_id}/youtube/redirect")
+def youtube_redirect_get(integration_id: int, db: Session = Depends(get_db)):
+    return youtube_redirect_options(db, _youtube(db, integration_id))
+
+
+@router.put("/{integration_id}/youtube/redirect")
+def youtube_redirect_set(integration_id: int, data: YoutubeRedirectIn, db: Session = Depends(get_db)):
+    integ = _youtube(db, integration_id)
+    try:
+        uri = youtube.normalize_redirect(data.redirect_uri)
+    except SyncError as e:
+        raise HTTPException(422, str(e)) from e
+    config = json.loads(integ.config or "{}")
+    if uri == youtube.REDIRECT_URI:
+        config.pop("oauth_redirect_uri", None)
+    else:
+        config["oauth_redirect_uri"] = uri
+    integ.config = json.dumps(config)
+    db.commit()
+    return youtube_redirect_options(db, integ)
+
+
 @router.get("/{integration_id}/youtube/authorize")
-def youtube_authorize(integration_id: int, db: Session = Depends(get_db)):
+def youtube_authorize(integration_id: int, return_to: str = "", db: Session = Depends(get_db)):
+    """return_to: the CRM address in your browser (e.g. http://100.121.179.33:3050), where the automatic
+    return sends you after Google."""
     integ = _youtube(db, integration_id)
     config = json.loads(integ.config or "{}")
     try:
@@ -200,40 +262,29 @@ def youtube_authorize(integration_id: int, db: Session = Depends(get_db)):
         raise HTTPException(422, "Saved credentials can't be read; re-enter them with Edit") from e
     if not secrets.get("oauth_client_secret"):
         raise HTTPException(422, "Enter the OAuth client secret first (Edit the YouTube connection)")
+    redirect = config.get("oauth_redirect_uri") or youtube.REDIRECT_URI
     verifier, challenge = youtube.new_pkce()
+    state = f"yt{integ.id}.{secrets_mod.token_urlsafe(24)}"
     try:
-        url = youtube.authorize_url(config, challenge, state=f"yt{integ.id}")
+        url = youtube.authorize_url(config, challenge, state=state, redirect_uri=redirect)
     except SyncError as e:
         raise HTTPException(422, str(e)) from e
-    secrets["pkce_verifier"] = verifier
+    rt = urlparse(return_to.strip())
+    secrets.update(pkce_verifier=verifier, pkce_redirect=redirect, oauth_state=state,
+                   oauth_return_to=f"{rt.scheme}://{rt.netloc}" if rt.scheme in ("http", "https") and rt.netloc else "")
     integ.secrets = encrypt_secrets(secrets)
     db.commit()
-    return {"url": url, "redirect_uri": youtube.REDIRECT_URI}
+    return {"url": url, "redirect_uri": redirect, "automatic": redirect != youtube.REDIRECT_URI}
 
 
 @router.post("/{integration_id}/youtube/connect")
 def youtube_connect(integration_id: int, data: YoutubeConnectIn, db: Session = Depends(get_db)):
     integ = _youtube(db, integration_id)
-    config, secrets = json.loads(integ.config or "{}"), decrypt_secrets(integ.secrets)
     try:
         code = youtube.extract_code(data.pasted)
-        if not secrets.get("pkce_verifier"):
-            raise SyncError("YouTube: click “Open Google sign-in” first, then paste the address")
-        with base.make_client() as client:
-            tokens = youtube.exchange_code(client, config, secrets, code, secrets["pkce_verifier"])
-            try:
-                ch = youtube.my_channel(client, tokens["access_token"])
-            except SyncError:
-                ch = {}
+        integ = finish_youtube_signin(db, integ, code)
     except SyncError as e:
         raise HTTPException(422, str(e)) from e
-    secrets["refresh_token"] = tokens["refresh_token"]
-    secrets.pop("pkce_verifier", None)
-    config["upload_channel_title"] = (ch.get("snippet") or {}).get("title", "")
-    config["upload_channel_id"] = ch.get("id", "")
-    integ.config, integ.secrets = json.dumps(config), encrypt_secrets(secrets)
-    db.commit()
-    db.refresh(integ)
     return serialize(integ)
 
 

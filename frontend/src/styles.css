@@ -313,3 +313,8 @@ textarea { resize: vertical; }
 .legend-line, .legend-dash { display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--primary); }
 .legend-dash { border-top: 3px dashed var(--amber); margin-left: 8px; }
 @media (max-width: 700px) { .chart-modal { padding: 12px; } .axis-text { font-size: 11px; } }
+.yt-auto ol { padding-left: 18px; display: grid; gap: 8px; margin: 8px 0 0; }
+.yt-auto .row input { flex: 1; min-width: 0; }
+.code-row { margin: 4px 0; gap: 8px; align-items: center; }
+.code-row code { flex: 1; min-width: 0; overflow-wrap: anywhere; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+.ebay-step details summary { cursor: pointer; margin-top: 10px; color: var(--primary); }

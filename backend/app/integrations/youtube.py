@@ -1,5 +1,6 @@
 """YouTube Data API v3 (API key): subscriber count + recent uploads with views/likes/comments."""
 import base64
+import ipaddress
 import hashlib
 import secrets as _secrets
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -109,6 +110,31 @@ AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 UPLOAD_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
 REDIRECT_URI = "http://127.0.0.1"      # loopback redirect for "Desktop app" clients; the user pastes the address back
+CALLBACK_PATH = "/api/oauth/youtube/callback"   # automatic return (needs a "Web application" client + public https host)
+
+
+def normalize_redirect(value: str | None) -> str:
+    """'' -> the copy/paste loopback address. Otherwise an https address on a real host name
+    (Google refuses plain IP addresses like 100.x or 192.168.x and plain http)."""
+    v = (value or "").strip().rstrip("/")
+    if not v or v in (REDIRECT_URI, "http://localhost"):
+        return REDIRECT_URI
+    u = urlparse(v if "://" in v else f"https://{v}")
+    host = (u.hostname or "").lower()
+    if host in ("127.0.0.1", "localhost"):
+        return REDIRECT_URI
+    try:
+        ipaddress.ip_address(host)
+        is_ip = True
+    except ValueError:
+        is_ip = False
+    if is_ip or "." not in host:
+        raise SyncError(f"Google won't send sign-ins back to {host or v}: it must be a web address with a name "
+                        "(like https://mserver.your-tailnet.ts.net), not an IP address. Use your Tailscale Funnel "
+                        "address, or choose “Copy and paste”.")
+    if u.scheme != "https":
+        raise SyncError("Google requires the return address to start with https:// (your Tailscale Funnel address does).")
+    return f"https://{u.netloc}{CALLBACK_PATH}"
 
 
 def new_pkce() -> tuple[str, str]:
@@ -117,12 +143,12 @@ def new_pkce() -> tuple[str, str]:
     return verifier, challenge
 
 
-def authorize_url(config: dict, challenge: str, state: str) -> str:
+def authorize_url(config: dict, challenge: str, state: str, redirect_uri: str = REDIRECT_URI) -> str:
     cid = (config.get("oauth_client_id") or "").strip()
     if not cid:
         raise SyncError("YouTube: enter the OAuth client ID and secret first (Edit the YouTube connection)")
     return AUTH_URL + "?" + urlencode({
-        "client_id": cid, "redirect_uri": REDIRECT_URI, "response_type": "code", "scope": UPLOAD_SCOPES,
+        "client_id": cid, "redirect_uri": redirect_uri, "response_type": "code", "scope": UPLOAD_SCOPES,
         "access_type": "offline", "prompt": "consent", "include_granted_scopes": "true", "state": state,
         "code_challenge": challenge, "code_challenge_method": "S256"})
 
@@ -138,8 +164,8 @@ def extract_code(pasted: str) -> str:
             return code
     if v.startswith("4/"):
         return v
-    raise SyncError("YouTube: couldn't find the sign-in code. After clicking Continue, Google opens a page that "
-                    "won't load (127.0.0.1). Copy that page's whole address bar (it contains “code=”) and paste it here.")
+    raise SyncError("YouTube: couldn't find the sign-in code. After clicking Continue, Google opens a new page "
+                    "(it may not load). Copy that page's whole address bar (it contains “code=”) and paste it here.")
 
 
 def _oauth_error(resp) -> str:
@@ -150,13 +176,20 @@ def _oauth_error(resp) -> str:
         return f"HTTP {resp.status_code}"
 
 
-def exchange_code(client, config: dict, secrets: dict, code: str, verifier: str) -> dict:
+def exchange_code(client, config: dict, secrets: dict, code: str, verifier: str, redirect_uri: str = REDIRECT_URI) -> dict:
     resp = client.post(TOKEN_URL, data={
         "code": code, "client_id": config.get("oauth_client_id", "").strip(),
-        "client_secret": secrets.get("oauth_client_secret", "").strip(), "redirect_uri": REDIRECT_URI,
+        "client_secret": secrets.get("oauth_client_secret", "").strip(), "redirect_uri": redirect_uri,
         "grant_type": "authorization_code", "code_verifier": verifier})
     if resp.status_code >= 400:
-        raise SyncError(f"YouTube sign-in failed ({_oauth_error(resp)}). Codes expire after a few minutes; try again.")
+        err = _oauth_error(resp)
+        hint = ""
+        if "redirect_uri_mismatch" in err:
+            hint = (f" Google Cloud must list exactly {redirect_uri} under the client's Authorized redirect URIs"
+                    if redirect_uri != REDIRECT_URI else " This client needs to be a “Desktop app” for copy and paste")
+        elif "invalid_client" in err or "unauthorized_client" in err:
+            hint = " Check the client ID and secret were copied from the same Google client."
+        raise SyncError(f"YouTube sign-in failed ({err}).{hint} Codes expire after a few minutes; try again.")
     data = resp.json()
     if not data.get("refresh_token"):
         raise SyncError("YouTube: Google didn't return a long-term token. Remove the app's access at "

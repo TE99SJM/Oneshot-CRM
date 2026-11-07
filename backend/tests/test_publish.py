@@ -1,3 +1,5 @@
+from urllib.parse import parse_qs, urlparse
+from fastapi.testclient import TestClient
 """Compose & publish: Facebook, Instagram and YouTube against mock platform APIs."""
 import io
 import json
@@ -351,3 +353,35 @@ def test_restart_marks_interrupted_and_cleanup(auth, accounts, fake):
     assert runner.cleanup_media(force=True) == 1
     job = auth.get(f"/api/publish/{job['id']}").json()
     assert job["media_deleted"] and auth.post(f"/api/publish/{job['id']}/retry").status_code == 409
+
+
+def test_youtube_automatic_return(auth, accounts, fake):
+    _, _, yt = accounts
+    base = f"/api/integrations/{yt['id']}/youtube"
+    opts = auth.get(f"{base}/redirect").json()
+    assert opts["saved"] == "http://127.0.0.1" and opts["suggested"] == ""
+    # Google refuses IP addresses and plain http
+    for bad in ["http://100.121.179.33:3050", "100.121.179.33", "http://mserver.tail1.ts.net"]:
+        r = auth.put(f"{base}/redirect", json={"redirect_uri": bad})
+        assert r.status_code == 422, bad
+    r = auth.put(f"{base}/redirect", json={"redirect_uri": "mserver.tail1.ts.net"}).json()
+    assert r["saved"] == "https://mserver.tail1.ts.net/api/oauth/youtube/callback"
+
+    a = auth.get(f"{base}/authorize", params={"return_to": "http://100.121.179.33:3050/integrations"}).json()
+    assert a["automatic"] and "redirect_uri=https%3A%2F%2Fmserver.tail1.ts.net%2Fapi%2Foauth%2Fyoutube%2Fcallback" in a["url"]
+    state = parse_qs(urlparse(a["url"]).query)["state"][0]
+
+    anon = TestClient(auth.app)          # Google's redirect arrives without the CRM login
+    r = anon.get("/api/oauth/youtube/callback", params={"state": "yt1.wrong", "code": "4/x"}, follow_redirects=False)
+    assert r.status_code == 400 and "expired" in r.text
+    r = anon.get("/api/oauth/api/oauth/youtube/callback", params={"state": state, "code": "4/abc"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"].startswith("http://100.121.179.33:3050/integrations?youtube_posting=connected")
+    tok = [c for c in fake.calls if c.url.host == "oauth2.googleapis.com"][-1]
+    assert fake.form(tok)["redirect_uri"] == "https://mserver.tail1.ts.net/api/oauth/youtube/callback"
+    saved = auth.get(f"/api/integrations/{yt['id']}").json()
+    assert "refresh_token" in saved["saved_secrets"] and saved["config"]["upload_channel_title"] == "Gaming Outdoorsmen"
+    # the one-time state can't be reused
+    assert anon.get("/api/oauth/youtube/callback", params={"state": state, "code": "4/abc"}).status_code == 400
+    # back to copy and paste
+    assert auth.put(f"{base}/redirect", json={"redirect_uri": ""}).json()["saved"] == "http://127.0.0.1"

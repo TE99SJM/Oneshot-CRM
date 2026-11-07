@@ -169,7 +169,15 @@ What each platform takes:
 
 - **Facebook:** make a new Page token like in the Facebook steps but also tick **pages_manage_posts**. Paste it with **Edit** on the Facebook connection.
 - **Instagram:** the same token also needs **instagram_content_publish** and **pages_manage_posts**. Paste it with **Edit** on the Instagram connection.
-- **YouTube:** click **Set up posting** on the YouTube connection and follow the three steps. You make a free Google sign-in app (OAuth client, type **Desktop app**), paste its ID and secret, then sign in. Google warns "hasn't verified this app": that's normal for your own app (Advanced → Go to …). At the end the browser opens a `127.0.0.1` page that won't load; copy its address bar into the CRM. On the **Audience** page click **Publish app** so the sign-in doesn't expire every 7 days.
+- **YouTube:** click **Set up posting** on the YouTube connection. Step 1 asks how Google should send you back after you sign in:
+  - **Automatic (recommended).** Google won't send sign-ins to an IP address like `100.121.179.33:3050` or `192.168.x.x`. It needs a named **https** address. Your Tailscale Funnel name works, and only the sign-in path is made public:
+    ```bash
+    sudo tailscale funnel --bg --set-path=/api/oauth http://127.0.0.1:3050/api/oauth
+    tailscale funnel status          # copy the https://<server>.<tailnet>.ts.net address
+    ```
+    Paste that address into step 1 and click Save. The CRM shows your return address, `https://<server>.<tailnet>.ts.net/api/oauth/youtube/callback`. In Google Auth Platform → **Clients**, create a client of type **Web application** and add that exact address under **Authorized redirect URIs**. (A "Desktop app" client can't use it.) Paste the new client ID and secret, then click **Open Google sign-in**. After you approve, Google sends you straight back to the CRM at whatever address you normally use, and posting turns on by itself. To turn it off later: `sudo tailscale funnel --https=443 --set-path=/api/oauth off`.
+  - **Copy and paste.** No server setup needed. Use a **Desktop app** client. At the end the browser opens a `127.0.0.1` page that won't load; copy its address bar into the CRM.
+  - Either way: Google warns "hasn't verified this app". That's normal for your own app (Advanced → Go to …). On the **Audience** page click **Publish app** so the sign-in doesn't expire every 7 days.
 
 ### Good to know
 
@@ -268,6 +276,7 @@ Interactive docs: **http://localhost:8000/docs** (Swagger UI). All endpoints exc
 | `POST /api/auth/setup` | Create the first account (only when none exist) → token |
 | `POST /api/auth/login` | `{email, password}` → token |
 | `GET /api/auth/me` · `POST /api/auth/password` | Current user · change password |
+| `GET /api/oauth/youtube/callback` | Public (no login): Google's automatic return after YouTube sign-in. Protected by a one-time random `state` |
 | `GET /api/dashboard?start=&end=&tz_offset=` | KPIs, channel breakdown and funnels for a period (local dates; omit both for all time), upcoming posts, open tasks |
 | `GET /api/dashboard/series/{metric}?start=&end=&bucket=auto\|day\|week\|month&tz_offset=` | Time series behind the full-screen charts. Metrics: `won_revenue`, `open_pipeline`, `win_rate`, `contacts`, `new_contacts`, `audience`, `views` |
 | `GET/POST /api/channels` · `GET/PATCH/DELETE /api/channels/{id}` | Channels (list includes computed stats) |

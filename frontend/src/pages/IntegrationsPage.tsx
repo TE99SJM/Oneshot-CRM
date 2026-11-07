@@ -57,6 +57,17 @@ export default function IntegrationsPage() {
   }, []);
   useEffect(() => { load().catch(toastError); }, [load]);
 
+  // Google's automatic return lands here: /integrations?youtube_posting=connected|error
+  useEffect(() => {
+    const yp = params.get("youtube_posting");
+    if (!yp) return;
+    if (yp === "connected") push(`YouTube posting is on${params.get("channel") ? ` for ${params.get("channel")}` : ""}.`, "success");
+    else push(params.get("message") || "YouTube sign-in didn't finish.", "error");
+    const next = new URLSearchParams(params);
+    ["youtube_posting", "channel", "message"].forEach((k) => next.delete(k));
+    setParams(next, { replace: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const run = async (i: Integration, action: "test" | "sync") => {
     setBusy((b) => ({ ...b, [i.id]: action }));
     try {
@@ -199,14 +210,65 @@ function Copy({ text }: { text: string }) {
   );
 }
 
+type YtRedirect = { saved: string; loopback: string; callback_path: string; suggested: string };
+
 function YoutubePosting({ integ, onClose, onChange }: { integ: Integration; onClose: () => void; onChange: (i: Integration) => void }) {
   const [clientId, setClientId] = useState(integ.config.oauth_client_id ?? "");
   const [clientSecret, setClientSecret] = useState("");
   const [pasted, setPasted] = useState("");
   const [busy, setBusy] = useState("");
+  const [redir, setRedir] = useState<YtRedirect | null>(null);
+  const [mode, setMode] = useState<"auto" | "paste">("auto");
+  const [host, setHost] = useState("");
+  const [waiting, setWaiting] = useState(false);
   const push = useToasts((s) => s.push);
   const signedIn = integ.saved_secrets.includes("refresh_token");
   const hasSecret = integ.saved_secrets.includes("oauth_client_secret");
+
+  useEffect(() => {
+    api.get<YtRedirect>(`/integrations/${integ.id}/youtube/redirect`).then((r) => {
+      setRedir(r);
+      const auto = r.saved !== r.loopback;
+      setMode(auto || !signedIn ? "auto" : "paste");   // already signed in by copy and paste: leave as is
+      const src = auto ? r.saved : r.suggested;
+      setHost(src ? new URL(src).origin : "");
+    }).catch(toastError);
+  }, [integ.id]);
+
+  // after "Open Google sign-in" in automatic mode, watch for the sign-in to finish in the other tab
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setInterval(async () => {
+      try {
+        const u = await api.get<Integration>(`/integrations/${integ.id}`);
+        if (u.saved_secrets.includes("refresh_token")) {
+          setWaiting(false); onChange(u);
+          push(`YouTube posting is on${u.config.upload_channel_title ? ` for ${u.config.upload_channel_title}` : ""}.`, "success");
+        }
+      } catch { /* keep waiting */ }
+    }, 3000);
+    const stop = setTimeout(() => setWaiting(false), 10 * 60 * 1000);
+    return () => { clearInterval(t); clearTimeout(stop); };
+  }, [waiting, integ.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const savedAuto = !!redir && redir.saved !== redir.loopback;
+  const callback = host.trim() ? `${host.trim().replace(/\/+$/, "").replace(/^(?!https?:\/\/)/, "https://").replace(/^(https?:\/\/[^/]+).*$/, "$1")}${redir?.callback_path ?? "/api/oauth/youtube/callback"}` : "";
+  const unsaved = mode === "auto" && (!savedAuto || redir?.saved !== callback);
+  const isIp = /^(https?:\/\/)?\d+\.\d+\.\d+\.\d+/.test(host.trim());
+
+  const saveRedirect = async (value: string) => {
+    setBusy("redirect");
+    try {
+      const r = await api.put<YtRedirect>(`/integrations/${integ.id}/youtube/redirect`, { redirect_uri: value });
+      setRedir(r);
+      push(value ? "Return address saved." : "Switched to copy and paste.", "success");
+    } catch (e) { toastError(e); } finally { setBusy(""); }
+  };
+  const pickMode = (m: "auto" | "paste") => {
+    setMode(m);
+    if (m === "paste" && savedAuto) saveRedirect("");
+  };
+  const copy = (v: string) => navigator.clipboard?.writeText(v).then(() => push("Copied.", "success"), () => push(v, "info"));
 
   const saveKeys = async () => {
     setBusy("save");
@@ -222,8 +284,10 @@ function YoutubePosting({ integ, onClose, onChange }: { integ: Integration; onCl
     setBusy("open");
     const win = window.open("about:blank", "_blank");
     try {
-      const { url } = await api.get<{ url: string }>(`/integrations/${integ.id}/youtube/authorize`);
+      const { url, automatic } = await api.get<{ url: string; automatic: boolean }>(`/integrations/${integ.id}/youtube/authorize`,
+        { return_to: window.location.origin });
       if (win) win.location.href = url; else window.location.href = url;
+      if (automatic) setWaiting(true);
     } catch (e) { win?.close(); toastError(e); } finally { setBusy(""); }
   };
   const finish = async (e: FormEvent) => {
@@ -231,7 +295,7 @@ function YoutubePosting({ integ, onClose, onChange }: { integ: Integration; onCl
     setBusy("finish");
     try {
       const u = await api.post<Integration>(`/integrations/${integ.id}/youtube/connect`, { pasted });
-      onChange(u); setPasted("");
+      onChange(u); setPasted(""); setWaiting(false);
       push(`YouTube posting is on${u.config.upload_channel_title ? ` for ${u.config.upload_channel_title}` : ""}.`, "success");
     } catch (err) { toastError(err); } finally { setBusy(""); }
   };
@@ -240,6 +304,7 @@ function YoutubePosting({ integ, onClose, onChange }: { integ: Integration; onCl
     try { onChange(await api.post<Integration>(`/integrations/${integ.id}/youtube/disconnect`)); } catch (e) { toastError(e); }
   };
 
+  const funnelCmd = "sudo tailscale funnel --bg --set-path=/api/oauth http://127.0.0.1:3050/api/oauth";
   return (
     <Modal title="YouTube: set up posting" onClose={onClose} wide footer={<button className="btn" onClick={onClose}>Done</button>}>
       <div className="ebay-setup">
@@ -250,16 +315,55 @@ function YoutubePosting({ integ, onClose, onChange }: { integ: Integration; onCl
           </div>
         )}
         <section className="ebay-step">
-          <h3>1. Make a Google sign-in app (one time)</h3>
+          <h3>1. How Google sends you back</h3>
+          <div className="segmented" role="tablist">
+            <button className={mode === "auto" ? "active" : ""} onClick={() => pickMode("auto")} data-testid="yt-mode-auto">Automatic (recommended)</button>
+            <button className={mode === "paste" ? "active" : ""} onClick={() => pickMode("paste")} data-testid="yt-mode-paste">Copy and paste</button>
+          </div>
+          {mode === "auto" ? (
+            <div className="small yt-auto">
+              <p>Google only sends sign-ins back to a named <b>https</b> address. It refuses IP addresses like <code>{window.location.host}</code>.
+                Your server's Tailscale Funnel address works, and only the small <code>/api/oauth</code> sign-in path is shared. The rest of the CRM stays private.</p>
+              <ol>
+                <li>On the server, run this once (same as you did for eBay):
+                  <div className="row code-row"><code data-testid="yt-funnel-cmd">{funnelCmd}</code><button type="button" className="btn btn-sm" onClick={() => copy(funnelCmd)}>Copy</button></div>
+                  If it prints a link to turn on Funnel or HTTPS, open it, click Enable and run the command again.
+                  Then run <code>tailscale funnel status</code> and copy the <code>https://….ts.net</code> address it shows.</li>
+                <li>Paste that address here{redir?.suggested ? " (filled in from your eBay setup)" : ""}:
+                  <div className="row">
+                    <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="https://mserver.your-tailnet.ts.net" data-testid="yt-host" />
+                    <button type="button" className="btn btn-sm btn-primary" disabled={!host.trim() || isIp || busy === "redirect" || !unsaved}
+                      onClick={() => saveRedirect(host.trim())} data-testid="yt-save-redirect">{unsaved ? "Save" : "Saved ✓"}</button>
+                  </div>
+                  {isIp && <span className="text-red">That's an IP address. Google needs the <b>.ts.net</b> name instead.</span>}
+                </li>
+                {callback && !isIp && (
+                  <li>Your Google return address (you'll paste it in Google in step 2):
+                    <div className="row code-row"><code data-testid="yt-callback">{callback}</code><button type="button" className="btn btn-sm" onClick={() => copy(callback)}>Copy</button></div>
+                  </li>
+                )}
+              </ol>
+            </div>
+          ) : (
+            <p className="small">Works without any server setup. After signing in, Google opens a page at <code>127.0.0.1</code> that won't load. You copy its address bar and paste it into the CRM.</p>
+          )}
+        </section>
+        <section className="ebay-step">
+          <h3>2. Make a Google sign-in app (one time)</h3>
           <ol className="small">
             <li>Go to <a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noreferrer">console.cloud.google.com → Google Auth Platform</a> and pick the same project as your API key.</li>
-            <li>Click <b>Get started</b>: any app name, your email, Audience <b>External</b>, your email again, then Create.</li>
+            <li>Click <b>Get started</b> (skip if done): any app name, your email, Audience <b>External</b>, your email again, then Create.</li>
             <li>Open <b>Audience</b> and click <b>Publish app</b> → Confirm (status “In production”). Skip this and Google signs you out every 7 days. No review is needed for your own channel.</li>
-            <li>Open <b>Clients</b> → <b>Create client</b> → Application type <b>Desktop app</b> → Create. Copy the Client ID and Client secret.</li>
+            {mode === "auto" ? (
+              <li>Open <b>Clients</b> → <b>Create client</b> → Application type <b>Web application</b>. Under <b>Authorized redirect URIs</b> click <b>Add URI</b> and paste the return address from step 1. Leave “Authorized JavaScript origins” empty. Click <b>Create</b>, then copy the Client ID and Client secret.
+                <div className="muted">Already made a “Desktop app” client? That type can't use this address. Make the new Web application client and paste its ID and secret below; they replace the old ones.</div></li>
+            ) : (
+              <li>Open <b>Clients</b> → <b>Create client</b> → Application type <b>Desktop app</b> → Create. Copy the Client ID and Client secret.</li>
+            )}
           </ol>
         </section>
         <section className="ebay-step">
-          <h3>2. Paste the client details</h3>
+          <h3>3. Paste the client details</h3>
           <div className="form-grid">
             <Field label="Client ID"><input value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="1234-abc.apps.googleusercontent.com" /></Field>
             <Field label="Client secret"><input type="password" autoComplete="off" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)}
@@ -268,14 +372,23 @@ function YoutubePosting({ integ, onClose, onChange }: { integ: Integration; onCl
           <button type="button" className="btn btn-sm" disabled={!clientId.trim() || (!hasSecret && !clientSecret.trim()) || busy === "save"} onClick={saveKeys}>Save</button>
         </section>
         <section className="ebay-step">
-          <h3>3. Sign in with the account that owns the channel</h3>
-          <p className="small">Google will say <b>“Google hasn't verified this app”</b>. That's expected for your own app: click <b>Advanced</b> → <b>Go to … (unsafe)</b>, tick the boxes, then <b>Continue</b>.
-            At the end your browser opens a page at <code>127.0.0.1</code> that <b>won't load</b>. That's fine: copy the whole address bar and paste it below.</p>
-          <button type="button" className="btn btn-primary" disabled={!integ.config.oauth_client_id || !hasSecret || busy === "open"} onClick={open}>Open Google sign-in ↗</button>
-          <form onSubmit={finish} className="ebay-paste">
-            <textarea rows={3} value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder="http://127.0.0.1/?state=...&code=4/0Ab...&scope=..." data-testid="yt-paste" />
-            <button className="btn btn-primary" disabled={!pasted.trim() || busy === "finish"}>{busy === "finish" ? "Connecting…" : "Finish sign-in"}</button>
-          </form>
+          <h3>4. Sign in with the account that owns the channel</h3>
+          <p className="small">Google will say <b>“Google hasn't verified this app”</b>. That's expected for your own app: click <b>Advanced</b> → <b>Go to … (unsafe)</b>, tick the boxes, then <b>Continue</b>.{" "}
+            {mode === "auto"
+              ? <>Google then sends you straight back to the CRM and posting turns on by itself.</>
+              : <>At the end your browser opens a page at <code>127.0.0.1</code> that <b>won't load</b>. That's fine: copy the whole address bar and paste it below.</>}</p>
+          <button type="button" className="btn btn-primary" disabled={!integ.config.oauth_client_id || !hasSecret || busy === "open" || (mode === "auto" && unsaved)}
+            onClick={open} data-testid="yt-open">Open Google sign-in ↗</button>
+          {mode === "auto" && unsaved && <span className="small muted"> Save the return address in step 1 first.</span>}
+          {waiting && <div className="small muted" data-testid="yt-waiting">Waiting for Google… finish signing in in the other tab. This window updates by itself.</div>}
+          <details className="small" open={mode === "paste"}>
+            {mode === "auto" && <summary>Page didn't come back to the CRM? Paste its address instead</summary>}
+            <form onSubmit={finish} className="ebay-paste">
+              <textarea rows={3} value={pasted} onChange={(e) => setPasted(e.target.value)}
+                placeholder={mode === "auto" ? `${callback || "https://…ts.net/api/oauth/youtube/callback"}?state=...&code=4/0Ab...` : "http://127.0.0.1/?state=...&code=4/0Ab...&scope=..."} data-testid="yt-paste" />
+              <button className="btn btn-primary" disabled={!pasted.trim() || busy === "finish"}>{busy === "finish" ? "Connecting…" : "Finish sign-in"}</button>
+            </form>
+          </details>
         </section>
       </div>
     </Modal>
