@@ -1,3 +1,3 @@
-from . import ebay, facebook, instagram, rumble, square, twitch, youtube
+from . import ebay, facebook, gmail, instagram, rumble, square, twitch, youtube
 
-PROVIDERS = {m.INFO.key: m for m in (youtube, facebook, instagram, square, ebay, rumble, twitch)}
+PROVIDERS = {m.INFO.key: m for m in (youtube, facebook, instagram, square, ebay, gmail, rumble, twitch)}

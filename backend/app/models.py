@@ -202,3 +202,32 @@ class Order(Base):
 
     channel: Mapped[Channel | None] = relationship()
     contact: Mapped[Contact | None] = relationship()
+
+
+class Email(Base):
+    """An email message pulled from a mailbox integration (Gmail over IMAP)."""
+    __tablename__ = "emails"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account: Mapped[str] = mapped_column(String(255), index=True)             # the mailbox it came from
+    uid: Mapped[int] = mapped_column(Integer, default=0)
+    uidvalidity: Mapped[int] = mapped_column(Integer, default=0)
+    gm_msgid: Mapped[str] = mapped_column(String(40), default="", index=True)
+    thread_id: Mapped[str] = mapped_column(String(40), default="", index=True)
+    message_id: Mapped[str] = mapped_column(String(500), default="")
+    direction: Mapped[str] = mapped_column(String(4), default="in")           # in|out
+    from_name: Mapped[str] = mapped_column(String(200), default="")
+    from_email: Mapped[str] = mapped_column(String(255), default="", index=True)
+    to_addrs: Mapped[str] = mapped_column(Text, default="")                   # "Name <a@b>, ..."
+    cc_addrs: Mapped[str] = mapped_column(Text, default="")
+    subject: Mapped[str] = mapped_column(String(500), default="")
+    snippet: Mapped[str] = mapped_column(String(400), default="")
+    body_text: Mapped[str] = mapped_column(Text, default="")
+    body_html: Mapped[str] = mapped_column(Text, default="")
+    attachments: Mapped[str] = mapped_column(Text, default="[]")               # JSON [{name, type, size}]
+    labels: Mapped[str] = mapped_column(String(1000), default="")
+    unread: Mapped[bool] = mapped_column(Boolean, default=False)
+    bulk: Mapped[bool] = mapped_column(Boolean, default=False)               # newsletters / no-reply senders
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    contact_id: Mapped[int | None] = mapped_column(ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True, index=True)
+    channel_id: Mapped[int | None] = mapped_column(ForeignKey("channels.id", ondelete="SET NULL"), nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

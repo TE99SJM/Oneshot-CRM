@@ -145,7 +145,7 @@ The **Pipeline** also opens on the last 30 days: it shows deals created or close
 
 Channels → **Import CSV** reads the columns `Name, Type, Platform, Handle, URL, Followers / subscribers, Monthly cost (USD), Active, Notes` (comma- or tab-separated; Excel/Google Sheets "Download as CSV" works). Type can be the on-screen label ("Website / store") or the short name. A row whose Name matches an existing channel updates it, and blank cells keep what's already there. **Export / template** downloads the same layout.
 
-## Integrations (YouTube, Facebook Page, Instagram, Square, eBay, Rumble, Twitch)
+## Integrations (YouTube, Facebook Page, Instagram, Square, eBay, Gmail, Rumble, Twitch)
 
 Open **Integrations** in the sidebar, click **Connect** on a platform, follow the built-in steps, and paste
 the requested key. The first sync runs right away; after that the CRM syncs on its own schedule
@@ -158,8 +158,21 @@ the requested key. The first sync runs right away; after that the CRM syncs on i
 | Instagram | Facebook Page ID + the same Page token with `instagram_basic` (account must be Business/Creator and linked to the Page) | Followers, recent posts/reels with likes/comments |
 | Square | Production access token | Every order (open, completed, canceled) with full details → **Orders** tab; customers and online buyers → Contacts; orders → deals in an auto-created "Square Sales" funnel (refunds subtracted) |
 | eBay | App ID + Cert ID + RuName from developer.ebay.com, then a one-time "Sign in with eBay" (see below) | Every sold order (up to 2 years) with buyer, items, shipping address, tracking, eBay fees and refunds → **Orders** tab; buyers → Contacts; orders → deals in an "eBay Sales" funnel (Needs shipping / Shipped / Refunded) |
+| Gmail | Gmail address + Google app password (myaccount.google.com/apppasswords, needs 2-Step Verification) | Sent and received mail → **Emails** tab and each contact's page; optionally people you email become contacts. Read-only. |
 | Rumble | Live Stream API URL (rumble.com/account/livestream-api) and/or channel page URL | Followers, subscribers, live streams. Rumble has no public per-video stats API. |
 | Twitch | Channel name + Client ID/Secret from dev.twitch.tv/console | Follower total, live viewers, videos with views |
+
+### Connecting Gmail
+
+1. Make sure 2-Step Verification is on at [myaccount.google.com/security](https://myaccount.google.com/security).
+2. Open [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords), name it "Oneshot CRM", click Create, and copy the 16 letters.
+3. In the CRM: **Integrations → Connect Gmail**, enter your Gmail address and the app password, then click **Connect & sync**.
+
+Options: **Which mail** = `primary` (Primary inbox tab + Sent, the default) or `all`. **New contacts from email** = `emailed` (people you've sent mail to become contacts, the default), `all` (also people who email you; newsletters and no-reply senders are skipped), or `none`. The first sync reads the last 90 days, up to 1,500 messages per sync, and later syncs read only new mail.
+
+The CRM reads mail over IMAP and never sends, deletes or marks anything. Images inside emails are blocked until you click **Load images**, so senders can't tell you opened a message, and attachments stay in Gmail. To cut off access, delete the app password in your Google account.
+
+Why not "Sign in with Google"? Google treats Gmail reading as a restricted permission. For a personal, unverified Google Cloud app, that sign-in expires every 7 days, while an app password keeps working until you revoke it.
 
 ### Connecting eBay
 

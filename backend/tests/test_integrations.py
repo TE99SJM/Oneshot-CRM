@@ -27,7 +27,7 @@ def connect(auth, provider, values, **extra):
 
 def test_providers_and_secret_masking(auth):
     keys = [p["key"] for p in auth.get("/api/integrations/providers").json()]
-    assert keys == ["youtube", "facebook", "instagram", "square", "ebay", "rumble", "twitch"]
+    assert keys == ["youtube", "facebook", "instagram", "square", "ebay", "gmail", "rumble", "twitch"]
     assert auth.post("/api/integrations", json={"provider": "youtube", "values": {"channel": "@x"}}).status_code == 422
     assert auth.post("/api/integrations", json={"provider": "nope", "values": {}}).status_code == 422
     i = connect(auth, "youtube", {"channel": "@x", "api_key": "SECRET123"})

@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .database import init_db
-from .routers import (activities, auth, channels, contacts, dashboard, deals, ebay_public, funnels, integrations, orders,
+from .routers import (activities, auth, channels, contacts, dashboard, deals, ebay_public, emails, funnels, integrations, orders,
                       posts, system)
 
 
@@ -49,7 +49,7 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
-for r in (system, auth, dashboard, channels, contacts, funnels, deals, posts, activities, integrations, orders, ebay_public):
+for r in (system, auth, dashboard, channels, contacts, funnels, deals, posts, activities, integrations, orders, ebay_public, emails):
     app.include_router(r.router)
 
 # Serve the compiled React app (if it has been built) as a single-page application.

@@ -216,3 +216,22 @@ textarea { resize: vertical; }
 .token-box { flex: 1; min-width: 0; overflow-wrap: anywhere; padding: 6px 8px; background: var(--surface-2, #f3f4f6); border-radius: 6px; font-size: 12px; }
 .ebay-paste { display: grid; gap: 8px; margin-top: 10px; }
 .ebay-paste textarea { width: 100%; font-family: ui-monospace, monospace; font-size: 12px; }
+/* emails */
+.row-tight { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nowrap { white-space: nowrap; }
+.table.emails { table-layout: fixed; }
+.table.emails th:nth-child(1) { width: 150px; } .table.emails th:nth-child(2) { width: 24%; } .table.emails th:nth-child(4) { width: 15%; }
+.table.emails td { max-width: 0; }
+.table.emails tr.unread strong { font-weight: 800; }
+.table.emails tr.unread td:first-child { box-shadow: inset 3px 0 0 var(--accent, #0f766e); }
+.filter-chip { margin-bottom: 10px; gap: 10px; }
+.email-detail .details dd { overflow-wrap: anywhere; }
+.email-body { margin: 12px 0; border: 1px solid var(--border, #e5e7eb); border-radius: 8px; padding: 8px; background: #fff; }
+.email-frame { width: 100%; border: 0; display: block; background: #fff; }
+.email-text { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 14px; margin: 0; }
+.attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
+.attachment { border: 1px solid var(--border, #e5e7eb); border-radius: 6px; padding: 3px 8px; font-size: 13px; }
+.attachments .muted { flex-basis: 100%; }
+.list.thread li { gap: 10px; } .list.thread li.current { background: var(--surface-2, #f3f4f6); }
+@media (max-width: 700px) { .table.emails th:nth-child(4), .table.emails td:nth-child(4) { display: none; } .table.emails th:nth-child(1) { width: 74px; } .table.emails td:first-child { white-space: normal; font-size: 12px; } .table.emails th:nth-child(2) { width: 30%; } }

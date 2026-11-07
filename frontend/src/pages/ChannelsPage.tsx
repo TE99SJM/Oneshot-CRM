@@ -18,7 +18,7 @@ function ago(iso: string | null) {
 
 // channel platform -> integration that can pull its data
 const LIVE_PROVIDERS: Record<string, string> = {
-  youtube: "youtube", facebook: "facebook", instagram: "instagram", square: "square", ebay: "ebay", rumble: "rumble", twitch: "twitch",
+  youtube: "youtube", facebook: "facebook", instagram: "instagram", square: "square", ebay: "ebay", gmail: "gmail", rumble: "rumble", twitch: "twitch",
 };
 
 function safeUrl(u: string) {

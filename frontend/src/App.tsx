@@ -8,6 +8,7 @@ import ContentPage from "./pages/ContentPage";
 import DashboardPage from "./pages/DashboardPage";
 import IntegrationsPage from "./pages/IntegrationsPage";
 import OrdersPage from "./pages/OrdersPage";
+import EmailsPage from "./pages/EmailsPage";
 import LoginPage from "./pages/LoginPage";
 import PipelinePage from "./pages/PipelinePage";
 import SettingsPage from "./pages/SettingsPage";
@@ -49,6 +50,7 @@ export default function App() {
             <Route path="channels" element={<ChannelsPage />} />
             <Route path="integrations" element={<IntegrationsPage />} />
             <Route path="orders" element={<OrdersPage />} />
+            <Route path="emails" element={<EmailsPage />} />
             <Route path="tasks" element={<TasksPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

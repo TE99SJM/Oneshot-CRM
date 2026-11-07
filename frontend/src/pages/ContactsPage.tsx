@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { Badge, Drawer, Empty, Field, Modal, statusTone } from "../components/ui";
 import { dateOnly, dateTime, fromLocalInput, fullName, money } from "../format";
 import { channelName, useCrm } from "../store/crmStore";
 import { toastError, useToasts } from "../store/toastStore";
-import type { Activity, ActivityKind, Contact, ContactStatus, Deal } from "../types";
+import type { Activity, ActivityKind, Contact, ContactStatus, Deal, EmailPage } from "../types";
 
 const STATUSES: ContactStatus[] = ["lead", "prospect", "customer", "inactive"];
 const blank: Partial<Contact> = { first_name: "", last_name: "", email: "", phone: "", company: "", status: "lead", source_channel_id: null, tags: "", notes: "" };
@@ -12,14 +13,25 @@ const blank: Partial<Contact> = { first_name: "", last_name: "", email: "", phon
 export default function ContactsPage() {
   const { contacts, contactTotal, contactFilters, setContactFilters, loadContacts, channels, loading } = useCrm();
   const [editing, setEditing] = useState<Partial<Contact> | null>(null);
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [params, setParams] = useSearchParams();
+  const [openId, setOpenIdState] = useState<number | null>(() => Number(params.get("open")) || null);
+  const [fetched, setFetched] = useState<Contact | null>(null);
+  const setOpenId = (id: number | null) => {
+    setOpenIdState(id);
+    if (!id && params.get("open")) { params.delete("open"); setParams(params, { replace: true }); }
+  };
+  // Opened from a link (e.g. an email): the contact may not be in the filtered list.
+  useEffect(() => {
+    if (openId && !contacts.some((c) => c.id === openId) && fetched?.id !== openId)
+      api.get<Contact>(`/contacts/${openId}`).then(setFetched).catch(() => setOpenId(null));
+  }, [openId, contacts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const t = setTimeout(() => loadContacts().catch(toastError), 250); // debounce search typing
     return () => clearTimeout(t);
   }, [contactFilters, loadContacts]);
 
-  const open = contacts.find((c) => c.id === openId) ?? null;
+  const open = contacts.find((c) => c.id === openId) ?? (fetched?.id === openId ? fetched : null);
 
   return (
     <div className="page">
@@ -117,8 +129,10 @@ function ContactDrawer({ contact, onClose, onEdit }: { contact: Contact; onClose
   const [kind, setKind] = useState<ActivityKind>("note");
   const [summary, setSummary] = useState("");
   const [due, setDue] = useState("");
+  const [emails, setEmails] = useState<EmailPage | null>(null);
 
   const load = () => Promise.all([
+    api.get<EmailPage>(`/emails?contact_id=${contact.id}&limit=8`).then(setEmails),
     api.get<Activity[]>(`/contacts/${contact.id}/activities`).then(setActivities),
     api.get<Deal[]>(`/contacts/${contact.id}/deals`).then(setDeals),
   ]).catch(toastError);
@@ -159,6 +173,24 @@ function ContactDrawer({ contact, onClose, onEdit }: { contact: Contact; onClose
         <ul className="list">
           {deals.map((d) => <li key={d.id}><div><strong>{d.title}</strong><div className="muted small">{stageName(d)}</div></div><span className="mono">{money(d.value)}</span></li>)}
         </ul>
+      )}
+
+      <h3>Emails {emails && emails.total > 0 && <span className="muted small">({emails.total})</span>}</h3>
+      {!emails || emails.total === 0 ? <p className="muted small">No emails with this contact yet{contact.email ? "" : " (add their email address so Gmail mail can be matched)"}.</p> : (
+        <>
+          <ul className="list">
+            {emails.items.map((m) => (
+              <li key={m.id}>
+                <div className="grow" style={{ minWidth: 0 }}>
+                  <div className="ellipsis"><Badge tone={m.direction === "out" ? "blue" : "neutral"}>{m.direction === "out" ? "Sent" : "In"}</Badge> <strong>{m.subject}</strong></div>
+                  <div className="muted small ellipsis">{m.snippet}</div>
+                </div>
+                <span className="muted small nowrap">{dateOnly(m.sent_at)}</span>
+              </li>
+            ))}
+          </ul>
+          <Link className="small" to={`/emails?contact=${contact.id}`}>Open all emails with {contact.first_name} →</Link>
+        </>
       )}
 
       <h3>Activity</h3>

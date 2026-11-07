@@ -84,3 +84,16 @@ export type Json = any;
 export interface OrderDetail extends OrderRow { raw: Json; payments: Json[] }
 export interface OrderSummary { orders: number; gross: number; refunded: number; net: number; fees: number; tax: number; tips: number; average: number }
 export interface OrderPage { items: OrderRow[]; total: number; summary: OrderSummary }
+
+export interface EmailRow {
+  id: number; account: string; gm_msgid: string; thread_id: string; direction: "in" | "out";
+  from_name: string; from_email: string; to_addrs: string; cc_addrs: string; subject: string; snippet: string;
+  labels: string; unread: boolean; bulk: boolean; contact_id: number | null; contact_name: string | null;
+  sent_at: string | null; attachment_count: number; gmail_url: string;
+}
+export interface EmailDetail extends EmailRow {
+  body_text: string; body_html: string; message_id: string;
+  attachments: { name: string; type: string; size: number }[];
+  thread: { id: number; direction: "in" | "out"; from_name: string; from_email: string; subject: string; snippet: string; sent_at: string | null }[];
+}
+export interface EmailPage { items: EmailRow[]; total: number }
