@@ -97,3 +97,20 @@ export interface EmailDetail extends EmailRow {
   thread: { id: number; direction: "in" | "out"; from_name: string; from_email: string; subject: string; snippet: string; sent_at: string | null }[];
 }
 export interface EmailPage { items: EmailRow[]; total: number }
+
+export type PublishPlatform = "facebook" | "instagram" | "youtube";
+export interface PublishTargetOption {
+  integration_id: number; platform: PublishPlatform; name: string; enabled: boolean; channel_id: number | null;
+  channel_name: string | null; ready: boolean; note: string; account: string; public_media: boolean | null;
+}
+export interface MediaItem { id: number; filename: string; kind: "image" | "video"; mime: string; size: number; width: number; height: number; url: string }
+export interface PublishTarget {
+  id: number; platform: PublishPlatform; name: string; integration_id: number | null; options: Record<string, unknown>;
+  status: "pending" | "posting" | "processing" | "posted" | "failed" | "canceled"; url: string; external_id: string;
+  error: string; attempts: number; post_id: number | null; posted_at: string | null;
+}
+export interface PublishJob {
+  id: number; title: string; text: string; link: string; status: "scheduled" | "posting" | "done" | "partial" | "failed" | "canceled";
+  scheduled_at: string | null; created_at: string; finished_at: string | null; media_deleted: boolean;
+  media: MediaItem[]; targets: PublishTarget[];
+}

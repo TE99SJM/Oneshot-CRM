@@ -14,6 +14,7 @@ A self-hosted CRM for managing **social media channels, sales channels, sales fu
 | Pipeline | Multiple funnels with custom stages (probability %, open/won/lost); drag-and-drop deal board; dropping a deal in a Won/Lost stage closes it automatically |
 | Contacts | Leads → prospects → customers, source-channel attribution, tags, search/filters, activity timeline (notes, calls, emails, DMs, meetings, tasks), CSV import/export |
 | Content | Monthly content calendar + list view, idea bank, post status (idea/draft/scheduled/published), per-post metrics (views, likes, comments, shares, clicks) |
+| Compose | Write one post and send it to your Facebook Page, Instagram and YouTube at once, now or scheduled; photos, carousels, videos, Reels; per-platform results with links, retry and cancel |
 | Channels | Social accounts, stores, marketplaces, email lists, ads, referrals, with followers, monthly cost, and computed leads / open deals / won revenue / views |
 | Tasks | Follow-up list with due dates, overdue highlighting, linked contacts |
 | Settings | Change password, load demo data, import/export contacts, link to API docs |
@@ -141,6 +142,39 @@ The **Orders** tab opens on the last 30 days (pick Last 7/90 days, This year, Al
 
 The **Pipeline** also opens on the last 30 days: it shows deals created or closed (won/lost) in the selected range. Pick **All time** to see everything.
 
+## Posting (Compose)
+
+The **Compose** tab sends one post to any mix of your **Facebook Page**, **Instagram** and **YouTube** connections.
+
+1. Write the text, optionally add a link and attach photos or one video (drag and drop works).
+2. Tick where it should go. Accounts that need one more setup step are greyed out with a "Fix" link.
+3. Pick **Post now** or **Schedule** (your local time), then click the button.
+4. The **Posts sent from here** list shows each platform's result with an **Open ↗** link, any error, and **Retry failed**. Scheduled posts can be changed, posted early or cancelled. Every post also appears on the **Content** calendar, and later syncs keep its views and likes up to date.
+
+What each platform takes:
+
+| Platform | Accepts | Notes |
+|---|---|---|
+| Facebook Page | Text, link, 1–20 photos, or one video | Tick "Post the video as a Reel" for vertical clips (3–90 s) |
+| Instagram | 1 photo, a carousel of up to 20 photos, or one video (posted as a Reel) | Needs at least one photo or video. Captions max 2,200 characters; links aren't clickable |
+| YouTube | Exactly one video | Title (max 100), visibility, "made for kids" answer, tags. Vertical videos under 3 min become Shorts |
+
+### Permissions to add (one time)
+
+- **Facebook:** make a new Page token like in the Facebook steps but also tick **pages_manage_posts**. Paste it with **Edit** on the Facebook connection.
+- **Instagram:** the same token also needs **instagram_content_publish** and **pages_manage_posts**. Paste it with **Edit** on the Instagram connection.
+- **YouTube:** click **Set up posting** on the YouTube connection and follow the three steps. You make a free Google sign-in app (OAuth client, type **Desktop app**), paste its ID and secret, then sign in. Google warns "hasn't verified this app": that's normal for your own app (Advanced → Go to …). At the end the browser opens a `127.0.0.1` page that won't load; copy its address bar into the CRM. On the **Audience** page click **Publish app** so the sign-in doesn't expire every 7 days.
+
+### Good to know
+
+- Scheduled posts go out within about 30 seconds of their time, **as long as the CRM is running**. If the server is off, they go out as soon as it starts again.
+- Photos and videos are uploaded to the server first (`data/media`). They're deleted automatically 14 days after posting.
+- For Instagram photos, the CRM stores them as hidden Facebook Page photos so Instagram can fetch them, then deletes those copies. Nothing extra to set up.
+- Instagram videos upload directly. If Instagram ever refuses that for your app, put your public Tailscale address (for example `https://mserver.your-tailnet.ts.net`) in **Public media address** on the Instagram connection and share only the media folder:
+  `sudo tailscale funnel --bg --set-path=/api/media/public http://127.0.0.1:3050/api/media/public`
+  If eBay's Funnel address is already saved, the CRM uses that host automatically.
+- If the server restarts in the middle of posting, that item is marked failed with a note. Check the platform before you click Retry so it isn't posted twice.
+
 ## Importing channels
 
 Channels → **Import CSV** reads the columns `Name, Type, Platform, Handle, URL, Followers / subscribers, Monthly cost (USD), Active, Notes` (comma- or tab-separated; Excel/Google Sheets "Download as CSV" works). Type can be the on-screen label ("Website / store") or the short name. A row whose Name matches an existing channel updates it, and blank cells keep what's already there. **Export / template** downloads the same layout.
@@ -239,6 +273,11 @@ Interactive docs: **http://localhost:8000/docs** (Swagger UI). All endpoints exc
 | `GET/PATCH/DELETE /api/deals/{id}` | PATCH `{stage_id}` moves a deal; won/lost stages set `status` and `closed_at` |
 | `GET /api/posts?channel_id=&status=&start=&end=` · `POST /api/posts` · `GET/PATCH/DELETE /api/posts/{id}` | Content calendar |
 | `GET /api/activities?contact_id=&deal_id=&kind=&open_tasks=` · `POST` · `PATCH/DELETE /{id}` | Notes and tasks |
+| `GET /api/publish/targets` | Accounts you can post to, with readiness |
+| `POST /api/publish/media` | Upload photos/videos (multipart `files`) |
+| `POST /api/publish` · `GET /api/publish` · `GET/PATCH/DELETE /api/publish/{id}` | Create (now or `scheduled_at`), list, edit or remove posts |
+| `POST /api/publish/{id}/post-now` · `/retry` · `/cancel` | Post a scheduled item early, retry failed platforms, cancel |
+| `GET /api/integrations/{id}/youtube/authorize` · `POST …/youtube/connect` · `POST …/youtube/disconnect` | YouTube posting sign-in |
 | `POST /api/demo/seed` | Load demo data into an empty CRM |
 
 Example with curl:
@@ -259,5 +298,5 @@ curl -s localhost:8000/api/dashboard -H "Authorization: Bearer $TOKEN"
 
 ## Not included yet (natural next steps)
 
-- Direct posting to platforms, TikTok/Instagram integrations, OAuth "Sign in with..." flows (keys are pasted today)
+- Posting to X, TikTok or Truth Social
 - Multiple users with roles, email sending, file attachments, Alembic migrations

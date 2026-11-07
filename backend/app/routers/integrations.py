@@ -11,7 +11,7 @@ from ..database import get_db
 from ..deps import current_user, get_or_404
 from ..integrations.base import SyncError
 from ..integrations.crypto import decrypt_secrets, encrypt_secrets
-from ..integrations import base, ebay
+from ..integrations import base, ebay, youtube
 from ..integrations.registry import PROVIDERS
 from ..integrations.service import ensure_channel, provider_meta, run_sync, serialize, test_integration
 from ..models import Channel, Integration
@@ -174,5 +174,78 @@ def ebay_connect(integration_id: int, data: EbayConnectIn, db: Session = Depends
         finish_connect(db, integ, ebay.extract_code(data.pasted))
     except (SyncError, ValueError) as e:
         raise HTTPException(422, str(e)) from e
+    db.refresh(integ)
+    return serialize(integ)
+
+
+# ---------------------------------------------------------------- YouTube posting sign-in (Google OAuth, paste flow)
+class YoutubeConnectIn(BaseModel):
+    pasted: str = Field(min_length=1, max_length=4000)
+
+
+def _youtube(db: Session, integration_id: int) -> Integration:
+    integ = get_or_404(db, Integration, integration_id)
+    if integ.provider != "youtube":
+        raise HTTPException(422, "Not a YouTube connection")
+    return integ
+
+
+@router.get("/{integration_id}/youtube/authorize")
+def youtube_authorize(integration_id: int, db: Session = Depends(get_db)):
+    integ = _youtube(db, integration_id)
+    config = json.loads(integ.config or "{}")
+    try:
+        secrets = decrypt_secrets(integ.secrets)
+    except ValueError as e:
+        raise HTTPException(422, "Saved credentials can't be read; re-enter them with Edit") from e
+    if not secrets.get("oauth_client_secret"):
+        raise HTTPException(422, "Enter the OAuth client secret first (Edit the YouTube connection)")
+    verifier, challenge = youtube.new_pkce()
+    try:
+        url = youtube.authorize_url(config, challenge, state=f"yt{integ.id}")
+    except SyncError as e:
+        raise HTTPException(422, str(e)) from e
+    secrets["pkce_verifier"] = verifier
+    integ.secrets = encrypt_secrets(secrets)
+    db.commit()
+    return {"url": url, "redirect_uri": youtube.REDIRECT_URI}
+
+
+@router.post("/{integration_id}/youtube/connect")
+def youtube_connect(integration_id: int, data: YoutubeConnectIn, db: Session = Depends(get_db)):
+    integ = _youtube(db, integration_id)
+    config, secrets = json.loads(integ.config or "{}"), decrypt_secrets(integ.secrets)
+    try:
+        code = youtube.extract_code(data.pasted)
+        if not secrets.get("pkce_verifier"):
+            raise SyncError("YouTube: click “Open Google sign-in” first, then paste the address")
+        with base.make_client() as client:
+            tokens = youtube.exchange_code(client, config, secrets, code, secrets["pkce_verifier"])
+            try:
+                ch = youtube.my_channel(client, tokens["access_token"])
+            except SyncError:
+                ch = {}
+    except SyncError as e:
+        raise HTTPException(422, str(e)) from e
+    secrets["refresh_token"] = tokens["refresh_token"]
+    secrets.pop("pkce_verifier", None)
+    config["upload_channel_title"] = (ch.get("snippet") or {}).get("title", "")
+    config["upload_channel_id"] = ch.get("id", "")
+    integ.config, integ.secrets = json.dumps(config), encrypt_secrets(secrets)
+    db.commit()
+    db.refresh(integ)
+    return serialize(integ)
+
+
+@router.post("/{integration_id}/youtube/disconnect")
+def youtube_disconnect(integration_id: int, db: Session = Depends(get_db)):
+    integ = _youtube(db, integration_id)
+    secrets = decrypt_secrets(integ.secrets)
+    secrets.pop("refresh_token", None)
+    config = json.loads(integ.config or "{}")
+    config.pop("upload_channel_title", None)
+    config.pop("upload_channel_id", None)
+    integ.config, integ.secrets = json.dumps(config), encrypt_secrets(secrets)
+    db.commit()
     db.refresh(integ)
     return serialize(integ)

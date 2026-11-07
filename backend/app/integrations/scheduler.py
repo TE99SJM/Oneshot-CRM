@@ -44,3 +44,15 @@ async def scheduler_loop(interval_seconds: int = 60) -> None:
         except Exception:  # pragma: no cover
             log.exception("scheduler error")
         await asyncio.sleep(interval_seconds)
+
+
+async def publish_loop(interval_seconds: int = 30) -> None:
+    """Separate from syncs so a long sync never delays a scheduled post."""
+    from ..publishing.runner import run_due
+    await asyncio.sleep(5)
+    while True:
+        try:
+            await asyncio.to_thread(run_due)
+        except Exception:  # pragma: no cover
+            log.exception("publish scheduler error")
+        await asyncio.sleep(interval_seconds)

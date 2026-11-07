@@ -11,7 +11,7 @@ INFO = ProviderInfo(
         FieldSpec("page_id", "Page ID", placeholder="1234567890",
                   help="Numeric Page ID (shown in the me/accounts result, or Page → About → Page transparency)."),
         FieldSpec("page_token", "Page access token", secret=True, placeholder="EAA...",
-                  help="A long-lived Page token with pages_read_engagement (and read_insights for views)."),
+                  help="A long-lived Page token with pages_read_engagement, read_insights (views) and pages_manage_posts (posting)."),
         FieldSpec("max_posts", "Posts to sync", required=False, default="100", placeholder="100"),
         FieldSpec("api_version", "Graph API version", required=False, default=DEFAULT_VERSION, placeholder=DEFAULT_VERSION,
                   help="Leave as is unless Meta retires this version."),
@@ -19,7 +19,7 @@ INFO = ProviderInfo(
     steps=[
         "Go to developers.facebook.com → My Apps → Create app. Choose “Other”, then “Business” (any name). Use the Facebook account that manages the Page.",
         "Open Tools → Graph API Explorer. Pick your app under “Meta App”.",
-        "Under Permissions add pages_show_list, pages_read_engagement and read_insights, then click Generate Access Token and approve your Page.",
+        "Under Permissions add pages_show_list, pages_read_engagement, read_insights and pages_manage_posts (needed to post from Compose), then click Generate Access Token and approve your Page.",
         "Make it long-lived: open Tools → Access Token Debugger, paste the token, click “Extend Access Token” and copy the new token.",
         "Back in Graph API Explorer, paste that long-lived token, run GET me/accounts, and copy your Page's “id” and “access_token”. That Page token does not expire.",
         "Paste the Page ID and Page access token here.",

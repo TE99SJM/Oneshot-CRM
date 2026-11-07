@@ -1,4 +1,9 @@
 """YouTube Data API v3 (API key): subscriber count + recent uploads with views/likes/comments."""
+import base64
+import hashlib
+import secrets as _secrets
+from urllib.parse import parse_qs, urlencode, urlparse
+
 from .base import FieldSpec, ProviderInfo, SyncContext, SyncError, check_response, parse_dt, upsert_post
 
 API = "https://www.googleapis.com/youtube/v3"
@@ -14,6 +19,11 @@ INFO = ProviderInfo(
                   help="A Google Cloud API key with YouTube Data API v3 enabled."),
         FieldSpec("max_videos", "Videos to sync", required=False, default="100", placeholder="100",
                   help="How many of your most recent uploads to track (max 500)."),
+        FieldSpec("oauth_client_id", "OAuth client ID (for posting)", required=False,
+                  placeholder="1234-abc.apps.googleusercontent.com",
+                  help="Only needed to upload videos from Compose. See “Set up posting” after saving."),
+        FieldSpec("oauth_client_secret", "OAuth client secret (for posting)", secret=True, required=False,
+                  placeholder="GOCSPX-...", help="From the same OAuth client (Desktop app type)."),
     ],
     steps=[
         "Go to console.cloud.google.com and sign in with the Google account that owns the channel.",
@@ -92,3 +102,85 @@ def sync(ctx: SyncContext) -> None:
                         url=f"https://www.youtube.com/watch?v={v['id']}", published_at=parse_dt(sn.get("publishedAt")),
                         views=int(st.get("viewCount", 0)), likes=int(st.get("likeCount", 0)),
                         comments=int(st.get("commentCount", 0)))
+
+
+# ---------------------------------------------------------------- posting sign-in (OAuth 2.0, installed-app flow)
+AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+TOKEN_URL = "https://oauth2.googleapis.com/token"
+UPLOAD_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
+REDIRECT_URI = "http://127.0.0.1"      # loopback redirect for "Desktop app" clients; the user pastes the address back
+
+
+def new_pkce() -> tuple[str, str]:
+    verifier = _secrets.token_urlsafe(64)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    return verifier, challenge
+
+
+def authorize_url(config: dict, challenge: str, state: str) -> str:
+    cid = (config.get("oauth_client_id") or "").strip()
+    if not cid:
+        raise SyncError("YouTube: enter the OAuth client ID and secret first (Edit the YouTube connection)")
+    return AUTH_URL + "?" + urlencode({
+        "client_id": cid, "redirect_uri": REDIRECT_URI, "response_type": "code", "scope": UPLOAD_SCOPES,
+        "access_type": "offline", "prompt": "consent", "include_granted_scopes": "true", "state": state,
+        "code_challenge": challenge, "code_challenge_method": "S256"})
+
+
+def extract_code(pasted: str) -> str:
+    v = (pasted or "").strip().strip('"').strip("'")
+    if "error=access_denied" in v:
+        raise SyncError("YouTube: the Google sign-in was cancelled. Try again and click Continue/Allow.")
+    if "code=" in v:
+        qs = urlparse(v).query if "://" in v else v.split("?", 1)[-1]
+        code = (parse_qs(qs).get("code") or [""])[0]
+        if code:
+            return code
+    if v.startswith("4/"):
+        return v
+    raise SyncError("YouTube: couldn't find the sign-in code. After clicking Continue, Google opens a page that "
+                    "won't load (127.0.0.1). Copy that page's whole address bar (it contains “code=”) and paste it here.")
+
+
+def _oauth_error(resp) -> str:
+    try:
+        body = resp.json()
+        return f"{body.get('error', '')}: {body.get('error_description', '')}".strip(": ")
+    except ValueError:
+        return f"HTTP {resp.status_code}"
+
+
+def exchange_code(client, config: dict, secrets: dict, code: str, verifier: str) -> dict:
+    resp = client.post(TOKEN_URL, data={
+        "code": code, "client_id": config.get("oauth_client_id", "").strip(),
+        "client_secret": secrets.get("oauth_client_secret", "").strip(), "redirect_uri": REDIRECT_URI,
+        "grant_type": "authorization_code", "code_verifier": verifier})
+    if resp.status_code >= 400:
+        raise SyncError(f"YouTube sign-in failed ({_oauth_error(resp)}). Codes expire after a few minutes; try again.")
+    data = resp.json()
+    if not data.get("refresh_token"):
+        raise SyncError("YouTube: Google didn't return a long-term token. Remove the app's access at "
+                        "myaccount.google.com/permissions and sign in again.")
+    return data
+
+
+def access_token(client, config: dict, secrets: dict) -> str:
+    if not secrets.get("refresh_token"):
+        raise SyncError("YouTube: posting isn't set up. Integrations → YouTube → “Set up posting”.")
+    resp = client.post(TOKEN_URL, data={
+        "client_id": config.get("oauth_client_id", "").strip(), "client_secret": secrets.get("oauth_client_secret", "").strip(),
+        "refresh_token": secrets["refresh_token"], "grant_type": "refresh_token"})
+    if resp.status_code >= 400:
+        err = _oauth_error(resp)
+        if "invalid_grant" in err:
+            raise SyncError("YouTube: the posting sign-in expired or was revoked. Click “Set up posting” and sign in "
+                            "again. If this happens every week, set your Google app's Audience to “In production”.")
+        raise SyncError(f"YouTube: couldn't refresh the posting sign-in ({err})")
+    return resp.json()["access_token"]
+
+
+def my_channel(client, token: str) -> dict:
+    resp = client.get(f"{API}/channels", params={"part": "snippet", "mine": "true"},
+                      headers={"Authorization": f"Bearer {token}"})
+    items = (check_response(resp, "YouTube").get("items") or [])
+    return items[0] if items else {}

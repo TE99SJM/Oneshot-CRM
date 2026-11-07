@@ -47,6 +47,7 @@ export default function IntegrationsPage() {
   const opened = useRef(false);
   const [busy, setBusy] = useState<Record<number, string>>({});
   const [ebaySetup, setEbaySetup] = useState<Integration | null>(null);
+  const [ytSetup, setYtSetup] = useState<Integration | null>(null);
   const loadChannels = useCrm((s) => s.loadChannels);
   const push = useToasts((s) => s.push);
 
@@ -144,6 +145,11 @@ export default function IntegrationsPage() {
                         {i.saved_secrets.includes("refresh_token") ? "eBay setup" : "Finish eBay setup"}
                       </button>
                     )}
+                    {i.provider === "youtube" && (
+                      <button className="btn btn-sm" onClick={() => setYtSetup(i)} data-testid="yt-posting">
+                        {i.saved_secrets.includes("refresh_token") ? "Posting: on" : "Set up posting"}
+                      </button>
+                    )}
                     {p && <button className="btn btn-sm" onClick={() => setEditing({ provider: p, existing: i })}>Edit</button>}
                     <button className="btn btn-sm btn-danger" onClick={() => remove(i)}>Disconnect</button>
                   </div>
@@ -169,6 +175,10 @@ export default function IntegrationsPage() {
             }
           }} />
       )}
+      {ytSetup && (
+        <YoutubePosting integ={ytSetup} onClose={() => setYtSetup(null)}
+          onChange={(u) => { setItems((l) => l.map((x) => (x.id === u.id ? u : x))); setYtSetup(u); }} />
+      )}
       {ebaySetup && (
         <EbaySetup integ={ebaySetup} onClose={() => setEbaySetup(null)}
           onChange={(u) => { setItems((l) => l.map((x) => (x.id === u.id ? u : x))); setEbaySetup(u); }}
@@ -186,6 +196,89 @@ function Copy({ text }: { text: string }) {
       if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(ok).catch(() => window.prompt("Copy this:", text));
       else window.prompt("Copy this:", text);   // plain-http LAN pages can't use the clipboard API
     }}>{done ? "Copied" : "Copy"}</button>
+  );
+}
+
+function YoutubePosting({ integ, onClose, onChange }: { integ: Integration; onClose: () => void; onChange: (i: Integration) => void }) {
+  const [clientId, setClientId] = useState(integ.config.oauth_client_id ?? "");
+  const [clientSecret, setClientSecret] = useState("");
+  const [pasted, setPasted] = useState("");
+  const [busy, setBusy] = useState("");
+  const push = useToasts((s) => s.push);
+  const signedIn = integ.saved_secrets.includes("refresh_token");
+  const hasSecret = integ.saved_secrets.includes("oauth_client_secret");
+
+  const saveKeys = async () => {
+    setBusy("save");
+    try {
+      const values: Record<string, string> = { oauth_client_id: clientId.trim() };
+      if (clientSecret.trim()) values.oauth_client_secret = clientSecret.trim();
+      onChange(await api.patch<Integration>(`/integrations/${integ.id}`, { values }));
+      setClientSecret("");
+      push("Saved.", "success");
+    } catch (e) { toastError(e); } finally { setBusy(""); }
+  };
+  const open = async () => {
+    setBusy("open");
+    const win = window.open("about:blank", "_blank");
+    try {
+      const { url } = await api.get<{ url: string }>(`/integrations/${integ.id}/youtube/authorize`);
+      if (win) win.location.href = url; else window.location.href = url;
+    } catch (e) { win?.close(); toastError(e); } finally { setBusy(""); }
+  };
+  const finish = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy("finish");
+    try {
+      const u = await api.post<Integration>(`/integrations/${integ.id}/youtube/connect`, { pasted });
+      onChange(u); setPasted("");
+      push(`YouTube posting is on${u.config.upload_channel_title ? ` for ${u.config.upload_channel_title}` : ""}.`, "success");
+    } catch (err) { toastError(err); } finally { setBusy(""); }
+  };
+  const disconnect = async () => {
+    if (!confirm("Turn off YouTube posting for this connection? Stats syncing keeps working.")) return;
+    try { onChange(await api.post<Integration>(`/integrations/${integ.id}/youtube/disconnect`)); } catch (e) { toastError(e); }
+  };
+
+  return (
+    <Modal title="YouTube: set up posting" onClose={onClose} wide footer={<button className="btn" onClick={onClose}>Done</button>}>
+      <div className="ebay-setup">
+        {signedIn && (
+          <div className="callout row-between">
+            <span>Posting is on{integ.config.upload_channel_title ? <> for <b>{integ.config.upload_channel_title}</b></> : ""}. Use the Compose page to upload videos.</span>
+            <button className="btn btn-sm btn-danger" onClick={disconnect}>Turn off</button>
+          </div>
+        )}
+        <section className="ebay-step">
+          <h3>1. Make a Google sign-in app (one time)</h3>
+          <ol className="small">
+            <li>Go to <a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noreferrer">console.cloud.google.com → Google Auth Platform</a> and pick the same project as your API key.</li>
+            <li>Click <b>Get started</b>: any app name, your email, Audience <b>External</b>, your email again, then Create.</li>
+            <li>Open <b>Audience</b> and click <b>Publish app</b> → Confirm (status “In production”). Skip this and Google signs you out every 7 days. No review is needed for your own channel.</li>
+            <li>Open <b>Clients</b> → <b>Create client</b> → Application type <b>Desktop app</b> → Create. Copy the Client ID and Client secret.</li>
+          </ol>
+        </section>
+        <section className="ebay-step">
+          <h3>2. Paste the client details</h3>
+          <div className="form-grid">
+            <Field label="Client ID"><input value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="1234-abc.apps.googleusercontent.com" /></Field>
+            <Field label="Client secret"><input type="password" autoComplete="off" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)}
+              placeholder={hasSecret ? "•••••• saved (leave blank to keep)" : "GOCSPX-..."} /></Field>
+          </div>
+          <button type="button" className="btn btn-sm" disabled={!clientId.trim() || (!hasSecret && !clientSecret.trim()) || busy === "save"} onClick={saveKeys}>Save</button>
+        </section>
+        <section className="ebay-step">
+          <h3>3. Sign in with the account that owns the channel</h3>
+          <p className="small">Google will say <b>“Google hasn't verified this app”</b>. That's expected for your own app: click <b>Advanced</b> → <b>Go to … (unsafe)</b>, tick the boxes, then <b>Continue</b>.
+            At the end your browser opens a page at <code>127.0.0.1</code> that <b>won't load</b>. That's fine: copy the whole address bar and paste it below.</p>
+          <button type="button" className="btn btn-primary" disabled={!integ.config.oauth_client_id || !hasSecret || busy === "open"} onClick={open}>Open Google sign-in ↗</button>
+          <form onSubmit={finish} className="ebay-paste">
+            <textarea rows={3} value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder="http://127.0.0.1/?state=...&code=4/0Ab...&scope=..." data-testid="yt-paste" />
+            <button className="btn btn-primary" disabled={!pasted.trim() || busy === "finish"}>{busy === "finish" ? "Connecting…" : "Finish sign-in"}</button>
+          </form>
+        </section>
+      </div>
+    </Modal>
   );
 }
 

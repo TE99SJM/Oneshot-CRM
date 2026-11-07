@@ -15,19 +15,21 @@ from fastapi.staticfiles import StaticFiles
 from .config import settings
 from .database import init_db
 from .routers import (activities, auth, channels, contacts, dashboard, deals, ebay_public, emails, funnels, integrations, orders,
-                      posts, system)
+                      posts, publish, system)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
     _reset_stuck_syncs()
-    task = None
+    from .publishing.runner import reset_interrupted
+    reset_interrupted()
+    tasks = []
     if os.getenv("SYNC_SCHEDULER", "true").strip().lower() not in {"0", "false", "no", "off"}:
-        from .integrations.scheduler import scheduler_loop
-        task = asyncio.create_task(scheduler_loop())
+        from .integrations.scheduler import publish_loop, scheduler_loop
+        tasks = [asyncio.create_task(scheduler_loop()), asyncio.create_task(publish_loop())]
     yield
-    if task:
+    for task in tasks:
         task.cancel()
 
 
@@ -49,8 +51,9 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
-for r in (system, auth, dashboard, channels, contacts, funnels, deals, posts, activities, integrations, orders, ebay_public, emails):
+for r in (system, auth, dashboard, channels, contacts, funnels, deals, posts, activities, integrations, orders, ebay_public, emails, publish):
     app.include_router(r.router)
+app.include_router(publish.public_router)
 
 # Serve the compiled React app (if it has been built) as a single-page application.
 dist = settings.frontend_dist

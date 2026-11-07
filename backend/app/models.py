@@ -231,3 +231,57 @@ class Email(Base):
     contact_id: Mapped[int | None] = mapped_column(ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True, index=True)
     channel_id: Mapped[int | None] = mapped_column(ForeignKey("channels.id", ondelete="SET NULL"), nullable=True)
     synced_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class MediaFile(Base):
+    """A photo or video uploaded in Compose, stored under DATA_DIR/media."""
+    __tablename__ = "media_files"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)   # unguessable id for the public link
+    filename: Mapped[str] = mapped_column(String(255), default="")            # original name
+    stored_name: Mapped[str] = mapped_column(String(120))
+    jpeg_name: Mapped[str] = mapped_column(String(120), default="")           # JPEG copy for Instagram (images)
+    mime: Mapped[str] = mapped_column(String(100), default="")
+    kind: Mapped[str] = mapped_column(String(10), default="image")             # image|video
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    width: Mapped[int] = mapped_column(Integer, default=0)
+    height: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class PublishJob(Base):
+    """One Compose submission: the same text/media sent to one or more platforms."""
+    __tablename__ = "publish_jobs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(200), default="")               # video title (YouTube / Facebook video)
+    text: Mapped[str] = mapped_column(Text, default="")
+    link: Mapped[str] = mapped_column(String(1000), default="")
+    media_ids: Mapped[str] = mapped_column(Text, default="[]")                # JSON list of MediaFile ids, in order
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)   # UTC; None = now
+    status: Mapped[str] = mapped_column(String(12), default="scheduled", index=True)  # scheduled|posting|done|partial|failed|canceled
+    media_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    targets: Mapped[list["PublishTarget"]] = relationship(back_populates="job", cascade="all, delete-orphan",
+                                                          order_by="PublishTarget.id")
+
+
+class PublishTarget(Base):
+    """Where one PublishJob goes (a Facebook Page, an Instagram account, a YouTube channel)."""
+    __tablename__ = "publish_targets"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("publish_jobs.id", ondelete="CASCADE"), index=True)
+    integration_id: Mapped[int | None] = mapped_column(ForeignKey("integrations.id", ondelete="SET NULL"), nullable=True)
+    platform: Mapped[str] = mapped_column(String(20))                         # facebook|instagram|youtube
+    name: Mapped[str] = mapped_column(String(120), default="")
+    options: Mapped[str] = mapped_column(Text, default="{}")                  # JSON per-platform options
+    status: Mapped[str] = mapped_column(String(12), default="pending")       # pending|posting|processing|posted|failed|canceled
+    external_id: Mapped[str] = mapped_column(String(120), default="")
+    url: Mapped[str] = mapped_column(String(500), default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    post_id: Mapped[int | None] = mapped_column(ForeignKey("posts.id", ondelete="SET NULL"), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    job: Mapped[PublishJob] = relationship(back_populates="targets")

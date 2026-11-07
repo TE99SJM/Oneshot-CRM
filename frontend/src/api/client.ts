@@ -69,3 +69,23 @@ export const api = {
     URL.revokeObjectURL(a.href);
   },
 };
+
+/** Upload files with progress (fetch can't report upload progress). */
+export function uploadWithProgress<T>(path: string, form: FormData, onProgress: (pct: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", buildUrl(path));
+    const token = tokenStore.get();
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
+    xhr.onerror = () => reject(new ApiError(0, "Upload failed (network error)"));
+    xhr.onload = () => {
+      let data: unknown = xhr.responseText;
+      try { data = JSON.parse(xhr.responseText); } catch { /* not JSON */ }
+      if (xhr.status === 401) onUnauthorized();
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data as T);
+      else reject(new ApiError(xhr.status, errorMessage(data, `Upload failed (${xhr.status})`)));
+    };
+    xhr.send(form);
+  });
+}

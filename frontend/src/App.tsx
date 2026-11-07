@@ -4,6 +4,7 @@ import Layout from "./components/Layout";
 import { Toasts } from "./components/ui";
 import ChannelsPage from "./pages/ChannelsPage";
 import ContactsPage from "./pages/ContactsPage";
+import ComposePage from "./pages/ComposePage";
 import ContentPage from "./pages/ContentPage";
 import DashboardPage from "./pages/DashboardPage";
 import IntegrationsPage from "./pages/IntegrationsPage";
@@ -47,6 +48,7 @@ export default function App() {
             <Route path="pipeline" element={<PipelinePage />} />
             <Route path="contacts" element={<ContactsPage />} />
             <Route path="content" element={<ContentPage />} />
+            <Route path="compose" element={<ComposePage />} />
             <Route path="channels" element={<ChannelsPage />} />
             <Route path="integrations" element={<IntegrationsPage />} />
             <Route path="orders" element={<OrdersPage />} />

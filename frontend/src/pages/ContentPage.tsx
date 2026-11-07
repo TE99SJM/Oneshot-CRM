@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Badge, Empty, Field, Modal, statusTone } from "../components/ui";
 import { dateTime, fromLocalInput, num, parseUtc, toLocalInput } from "../format";
 import { channelName, useCrm } from "../store/crmStore";
@@ -45,7 +46,8 @@ export default function ContentPage() {
             <button className={view === "calendar" ? "active" : ""} onClick={() => setView("calendar")}>Calendar</button>
             <button className={view === "list" ? "active" : ""} onClick={() => setView("list")}>List</button>
           </div>
-          <button className="btn btn-primary" onClick={() => newPostOn()}>+ New post</button>
+          <Link className="btn" to="/compose">Post to platforms</Link>
+          <button className="btn btn-primary" onClick={() => newPostOn()}>+ Plan a post</button>
         </div>
       </header>
 
