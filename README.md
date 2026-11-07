@@ -211,6 +211,19 @@ the requested key. The first sync runs right away; after that the CRM syncs on i
 | Gmail | Gmail address + Google app password (myaccount.google.com/apppasswords, needs 2-Step Verification) | Sent and received mail → **Emails** tab and each contact's page; optionally people you email become contacts. Read-only. |
 | Rumble | Live Stream API URL (rumble.com/account/livestream-api) and/or channel page URL | Followers, subscribers, live streams. Rumble has no public per-video stats API. |
 | Twitch | Channel name + Client ID/Secret from dev.twitch.tv/console | Follower total, live viewers, videos with views |
+| Site visitors | GA4 property ID, website domain, service-account JSON key | Visitors, visits and page views per website → **Site Visitor** section on the existing Dashboard |
+
+### Site Visitor dashboard section
+
+Connect each website under **Dashboard → Site Visitor → Connect site**. Each connection gets its own card, so two sites stay separate even when they share a GA4 property. Counts follow the dashboard's selected date range and use each property's reporting time zone. Visitor totals come directly from GA4 for the whole period; daily unique counts and visitors across different sites are never added together.
+
+The website must already have a working Google Analytics 4 tag. For Square Online, add the `G-` measurement ID under **Settings → Tracking Tools → Google Analytics**. The Square sales API does not supply these visitor totals.
+
+For the CRM connection, enable **Google Analytics Data API** in Google Cloud, create a service account and download its JSON key. Grant that service account's email **Viewer** access in **Google Analytics → Admin → Property access management**. In the CRM, name the connection after the site, enter its domain and **numeric property ID**, then upload the JSON key. Repeat for the second website. The key is encrypted using the existing integration secret storage. An OAuth client JSON file or YouTube API key cannot be used for this connection.
+
+Only the specified hostname and its `www` equivalent are included; other subdomains require their own connection. Website traffic stays separate from social Audience/Views and Square customers/orders. No new sidebar page is added.
+
+Reports are cached in memory for 15 minutes (up to 64 reports); **Refresh** requests new totals. Failed requests show an error, or explicitly marked last-available data for the same site and dates. Paused connections do not fetch reports. Disconnecting removes the dashboard card. Recent data may still be processing in Google Analytics, and tracking begins when the Google tag is installed; connecting the CRM does not reconstruct untracked visits or identify anonymous visitors by name.
 
 ### Connecting TikTok (views, followers, posting)
 
@@ -308,6 +321,7 @@ Interactive docs: **http://localhost:8000/docs** (Swagger UI). All endpoints exc
 | `GET /api/oauth/youtube/callback` | Public (no login): Google's automatic return after YouTube sign-in. Protected by a one-time random `state` |
 | `GET /api/dashboard?start=&end=&tz_offset=` | KPIs, channel breakdown and funnels for a period (local dates; omit both for all time), upcoming posts, open tasks |
 | `GET /api/dashboard/series/{metric}?start=&end=&bucket=auto\|day\|week\|month&tz_offset=` | Time series behind the full-screen charts. Metrics: `won_revenue`, `open_pipeline`, `win_rate`, `contacts`, `new_contacts`, `audience`, `views` |
+| `GET /api/dashboard/site-visitors` · `GET /api/dashboard/site-visitors/{integration_id}?start=&end=&refresh=false` | Website connections and GA4 totals for dashboard Site Visitor cards; authenticated, dates in the GA4 property's time zone |
 | `GET/POST /api/channels` · `GET/PATCH/DELETE /api/channels/{id}` | Channels (list includes computed stats) |
 | `GET /api/contacts?q=&status=&channel_id=&tag=&limit=&offset=` | Search/filter, returns `{items, total}` |
 | `POST /api/contacts` · `GET/PATCH/DELETE /api/contacts/{id}` | Contact CRUD |

@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import settings
 from .database import init_db
 from .routers import (activities, auth, channels, contacts, dashboard, deals, ebay_public, emails, funnels, messages, oauth_apps,
-                      oauth_public, integrations, orders, posts, publish, system)
+                      oauth_public, integrations, orders, posts, publish, site_visitors, system)
 
 
 @asynccontextmanager
@@ -52,7 +52,7 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
-for r in (system, auth, dashboard, channels, contacts, funnels, deals, posts, activities, oauth_apps, integrations, messages, orders, ebay_public, oauth_public, emails, publish):
+for r in (system, auth, dashboard, site_visitors, channels, contacts, funnels, deals, posts, activities, oauth_apps, integrations, messages, orders, ebay_public, oauth_public, emails, publish):
     app.include_router(r.router)
 app.include_router(publish.public_router)
 

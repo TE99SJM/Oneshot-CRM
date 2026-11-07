@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Period, PeriodPicker, loadPeriod, periodInfo, savePeriod, tzOffset } from "../components/Period";
 import StatChartModal, { MetricKey } from "../components/StatChartModal";
+import SiteVisitors from "../components/SiteVisitors";
 import { SeriesPoint, TrendChart } from "../components/TrendChart";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
@@ -46,7 +47,7 @@ export default function DashboardPage() {
 
       <div className="period-banner card" data-testid="dashboard-period-banner">
         Showing <strong>{info.label}</strong> <span className="muted">· {info.range}</span>
-        <span className="muted small period-hint">“Open pipeline”, “Audience” and “Lifetime views” are always right now. Click any number to see it as a chart over time.</span>
+        <span className="muted small period-hint">“Open pipeline”, “Audience” and “Lifetime views” are always right now. Use “View chart” on a metric to see it over time.</span>
         {k.views_gained === null && k.views_lifetime > 0 && (
           <span className="muted small period-hint" data-testid="views-history-hint">
             Views gained per period appears once the CRM has a daily view total from before {info.short === "all time" ? "the start" : "this period started"}
@@ -86,6 +87,8 @@ export default function DashboardPage() {
           sub={k.views_history_since ? `all channels · daily history since ${shortDate(k.views_history_since)}` : "all channels · sync to fill in"}
           onClick={() => setChart("views_total")} testId="stat-views-lifetime" />
       </section>
+
+      <SiteVisitors start={info.start} end={info.end} label={info.label} />
 
       <section className="grid-2">
         <div className="card">
