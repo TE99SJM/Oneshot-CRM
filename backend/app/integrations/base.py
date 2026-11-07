@@ -29,7 +29,7 @@ class FieldSpec:
     required: bool = True
     placeholder: str = ""
     help: str = ""
-    kind: str = "text"            # text|select
+    kind: str = "text"            # text|select|json_file
     options: list[str] = field(default_factory=list)
     default: str = ""
 

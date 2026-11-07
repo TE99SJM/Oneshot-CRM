@@ -55,7 +55,7 @@ export interface Dashboard {
 
 export interface ProviderField {
   key: string; label: string; secret: boolean; required: boolean; placeholder: string; help: string;
-  kind: "text" | "select"; options: string[]; default: string;
+  kind: "text" | "select" | "json_file"; options: string[]; default: string;
 }
 export interface Provider {
   key: string; name: string; platform: string; channel_kind: string; summary: string; syncs: string[];
@@ -66,6 +66,12 @@ export interface Integration {
   config: Record<string, string>; saved_secrets: string[]; secrets_ok: boolean; enabled: boolean;
   sync_interval_minutes: number; last_sync_at: string | null; last_status: "never" | "ok" | "error" | "running";
   last_error: string; last_result: Record<string, unknown> & { warnings?: string[] }; created_at: string;
+}
+
+export interface VisitorSite { id: number; name: string; hostname: string; enabled: boolean }
+export interface VisitorReport {
+  visitors: number; visits: number; page_views: number; start: string; end: string;
+  timezone: string; fetched_at: string; warnings: string[]; stale: boolean; error: string;
 }
 
 export interface OrderRow {

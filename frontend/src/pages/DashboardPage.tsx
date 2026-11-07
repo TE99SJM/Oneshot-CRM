@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Period, PeriodPicker, loadPeriod, periodInfo, savePeriod, tzOffset } from "../components/Period";
 import StatChartModal, { MetricKey } from "../components/StatChartModal";
+import SiteVisitors from "../components/SiteVisitors";
 import { SeriesPoint, TrendChart } from "../components/TrendChart";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
@@ -44,7 +45,7 @@ export default function DashboardPage() {
 
       <div className="period-banner card" data-testid="dashboard-period-banner">
         Showing <strong>{info.label}</strong> <span className="muted">· {info.range}</span>
-        <span className="muted small period-hint">“Open pipeline” and “Audience” are always right now. Click any number to see it as a chart over time.</span>
+        <span className="muted small period-hint">“Open pipeline” and “Audience” are always right now. Use “View chart” on a metric to see it over time.</span>
       </div>
 
       {isEmpty && (
@@ -68,6 +69,8 @@ export default function DashboardPage() {
         <Stat label="Views" period={info.short} value={num(k.views)} sub={`${k.posts_published} posts · ${pct(k.engagement_rate)} engagement`}
           onClick={() => setChart("views")} testId="stat-views" />
       </section>
+
+      <SiteVisitors start={info.start} end={info.end} label={info.label} />
 
       <section className="grid-2">
         <div className="card">

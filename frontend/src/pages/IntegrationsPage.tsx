@@ -30,6 +30,7 @@ const RESULT_LABEL: Record<string, string> = {
   followers: "followers", subscribers: "subscribers", total_channel_views: "channel views", posts_created: "new posts",
   posts_updated: "posts updated", contacts_created: "new contacts", contacts_updated: "contacts updated",
   live_viewers: "watching live now", deals_created: "new deals", deals_updated: "deals updated", orders_synced: "orders", revenue_synced: "revenue",
+  site_visitors_30d: "site visitors in the last 30 days",
 };
 
 function summary(r: Integration["last_result"]) {
@@ -89,14 +90,16 @@ export default function IntegrationsPage() {
   };
 
   useEffect(() => {
+    const editId = Number(params.get("edit"));
+    const existing = items.find((i) => i.id === editId);
     const key = params.get("provider");
-    const p = providers.find((x) => x.key === key);
+    const p = providers.find((x) => x.key === (existing?.provider ?? key));
     if (!p || opened.current) return;
     opened.current = true;
     const ch = Number(params.get("channel")) || undefined;
-    setEditing({ provider: p, channelId: ch });
+    setEditing({ provider: p, existing, channelId: ch });
     setParams({}, { replace: true });
-  }, [providers, params, setParams]);
+  }, [providers, items, params, setParams]);
 
   const byKey = Object.fromEntries(providers.map((p) => [p.key, p]));
 
@@ -520,7 +523,7 @@ function ConnectForm({ provider, existing, channelId: presetChannel, onClose, on
       </div>
       <form id="connect-form" className="form-grid" onSubmit={submit}>
         <Field label="Connection name"><input value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} /></Field>
-        <Field label="Save data to channel" hint="Followers and posts are attached to this channel.">
+        <Field label="Save data to channel" hint={provider.key === "google_analytics" ? "Visitor totals appear in the dashboard's Site Visitor section." : "Followers and posts are attached to this channel."}>
           <select value={channelId} onChange={(e) => setChannelId(e.target.value ? Number(e.target.value) : "")}>
             <option value="">Create a new “{name || provider.name}” channel</option>
             {(matching.length ? matching : channels).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -534,6 +537,22 @@ function ConnectForm({ provider, existing, channelId: presetChannel, onClose, on
                 <select value={values[f.key]} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}>
                   {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
                 </select>
+              ) : f.kind === "json_file" ? (
+                <input type="file" accept=".json,application/json" required={f.required && !saved}
+                  onChange={async (e) => {
+                    const input = e.currentTarget;
+                    const file = input.files?.[0];
+                    setValues((v) => ({ ...v, [f.key]: "" }));
+                    if (!file) return;
+                    try {
+                      if (file.size > 32000) throw new Error("Choose a service-account JSON key smaller than 32 KB.");
+                      const text = await file.text();
+                      const parsed = JSON.parse(text);
+                      if (parsed.type !== "service_account" || !parsed.private_key || !parsed.client_email)
+                        throw new Error("Choose a service-account JSON key, not an OAuth client JSON file.");
+                      setValues((v) => ({ ...v, [f.key]: text }));
+                    } catch (error) { input.value = ""; toastError(error); }
+                  }} />
               ) : (
                 <input type={f.secret ? "password" : "text"} autoComplete="off" value={values[f.key]}
                   placeholder={saved ? "•••••• saved (leave blank to keep)" : f.placeholder}
