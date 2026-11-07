@@ -9,7 +9,7 @@ from ..database import get_db
 from ..deps import current_user
 from ..models import Activity, Channel, Contact, Deal, Funnel, Post, utcnow
 from ..schemas import ActivityOut, PostOut
-from ..stats_history import METRICS, record_snapshots, series
+from ..stats_history import METRICS, record_snapshots, series, views_gained
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"], dependencies=[Depends(current_user)])
 
@@ -49,6 +49,7 @@ def dashboard(start: date | None = None, end: date | None = None,
     views_p = sum(p.views for p in published_p)
     engagement_p = sum(p.likes + p.comments + p.shares + p.clicks for p in published_p)
     contacts_p = [c for c in contacts if inp(c.created_at)]
+    gained, history_since = views_gained(db, lo.date() if lo else None)
 
     kpis = {
         "contacts": len(contacts),
@@ -64,12 +65,16 @@ def dashboard(start: date | None = None, end: date | None = None,
         "closed_deals": len(won_p) + len(lost_p),
         "followers": sum(c.followers for c in channels if c.active),
         "posts_published": len(published_p),
-        "views": views_p,
+        "views": views_p,                          # views on posts published in the period
+        "views_gained": round(gained) if gained is not None else None,   # growth of lifetime views in the period
+        "views_history_since": history_since.isoformat() if history_since else None,
+        "views_lifetime": sum(c.total_views or 0 for c in channels if c.active),
         "engagement_rate": round(engagement_p / views_p * 100, 2) if views_p else None,
         "monthly_channel_cost": round(sum(c.monthly_cost for c in channels if c.active), 2),
     }
 
-    by_channel: dict[int | None, dict] = defaultdict(lambda: {"leads": 0, "won": 0.0, "pipeline": 0.0, "views": 0})
+    by_channel: dict[int | None, dict] = defaultdict(lambda: {"leads": 0, "won": 0.0, "pipeline": 0.0, "views": 0,
+                                                              "lifetime_views": 0})
     for c in contacts_p:
         by_channel[c.source_channel_id]["leads"] += 1
     for d in won_p:
@@ -78,6 +83,12 @@ def dashboard(start: date | None = None, end: date | None = None,
         by_channel[d.channel_id]["pipeline"] += d.value
     for p in published_p:
         by_channel[p.channel_id]["views"] += p.views
+    for c in channels:
+        if c.active and c.total_views:
+            by_channel[c.id]["lifetime_views"] = c.total_views
+            g, _ = views_gained(db, lo.date() if lo else None, f"views_total:{c.id}")
+            if g is not None:
+                by_channel[c.id]["views"] = max(by_channel[c.id]["views"], g)
     names = {c.id: c.name for c in channels}
     channel_rows = [
         {"channel_id": cid, "channel": names.get(cid, "Unattributed"), **{k: round(v, 2) for k, v in vals.items()}}

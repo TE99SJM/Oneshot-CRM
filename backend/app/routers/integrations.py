@@ -300,3 +300,44 @@ def youtube_disconnect(integration_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(integ)
     return serialize(integ)
+
+
+# ---------------------------------------------------------------- Rumble "Send to CRM" bookmark import
+class RumbleImportIn(BaseModel):
+    videos: list[dict] = Field(default_factory=list, max_length=5000)
+    followers: int | None = None
+    channel_url: str = Field(default="", max_length=500)
+
+
+@router.post("/rumble/import")
+def rumble_import(data: RumbleImportIn, integration_id: int | None = None, db: Session = Depends(get_db)):
+    """Views/likes/comments read by the bookmark in your own browser (works even when Rumble blocks the server)."""
+    from ..integrations import rumble
+    from ..integrations.service import _context, update_total_views
+    from ..models import utcnow
+    q = select(Integration).where(Integration.provider == "rumble")
+    rumbles = db.scalars(q).all()
+    integ = next((i for i in rumbles if i.id == integration_id), None) if integration_id else None
+    if integ is None and data.channel_url:
+        want = rumble.channel_base(data.channel_url).lower()
+        integ = next((i for i in rumbles if rumble.channel_base(json.loads(i.config or "{}").get("channel_url", "")).lower() == want), None)
+    if integ is None and len(rumbles) == 1:
+        integ = rumbles[0]
+    if integ is None:
+        raise HTTPException(422, "Add a Rumble connection on the Integrations page first (or one for this channel).")
+    videos = [v for v in (rumble.normalize_video(x) for x in data.videos if isinstance(x, dict)) if v]
+    if not videos:
+        raise HTTPException(422, "No videos were found on that page. Open your channel's Videos tab on rumble.com and click the bookmark again.")
+    ctx = _context(db, integ, None)
+    n = rumble.save_videos(ctx, videos)
+    if data.followers is not None and data.followers >= 0:
+        ctx.channel.followers = data.followers
+        ctx.stats["followers"] = data.followers
+    if data.channel_url and not ctx.channel.url:
+        ctx.channel.url = rumble.channel_base(data.channel_url)
+    db.flush()
+    update_total_views(db, ctx)
+    integ.last_status, integ.last_error, integ.last_sync_at = "ok", "", utcnow()
+    integ.last_result = json.dumps({**ctx.stats, "warnings": ["Imported from your browser with the Send to CRM bookmark."]})
+    db.commit()
+    return {"imported": n, "total_views": ctx.channel.total_views, "integration": serialize(integ)}

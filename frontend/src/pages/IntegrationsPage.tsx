@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { Badge, Empty, Field, Modal } from "../components/ui";
+import { BookmarkLink, rumbleBookmarkCode } from "../components/RumbleBookmark";
 import { dateTime, money, num } from "../format";
 import { useCrm } from "../store/crmStore";
 import { toastError, useToasts } from "../store/toastStore";
@@ -27,7 +28,7 @@ const INTERVALS = [
   { v: 720, l: "Every 12 hours" }, { v: 1440, l: "Once a day" }, { v: 0, l: "Manual only" },
 ];
 const RESULT_LABEL: Record<string, string> = {
-  followers: "followers", subscribers: "subscribers", total_channel_views: "channel views", posts_created: "new posts",
+  followers: "followers", subscribers: "subscribers", total_channel_views: "channel views", total_views: "lifetime views", videos_read: "videos read", posts_created: "new posts",
   posts_updated: "posts updated", contacts_created: "new contacts", contacts_updated: "contacts updated",
   live_viewers: "watching live now", deals_created: "new deals", deals_updated: "deals updated", orders_synced: "orders", revenue_synced: "revenue",
 };
@@ -48,6 +49,7 @@ export default function IntegrationsPage() {
   const [busy, setBusy] = useState<Record<number, string>>({});
   const [ebaySetup, setEbaySetup] = useState<Integration | null>(null);
   const [ytSetup, setYtSetup] = useState<Integration | null>(null);
+  const [rumbleHelp, setRumbleHelp] = useState(false);
   const loadChannels = useCrm((s) => s.loadChannels);
   const push = useToasts((s) => s.push);
 
@@ -66,6 +68,24 @@ export default function IntegrationsPage() {
     const next = new URLSearchParams(params);
     ["youtube_posting", "channel", "message"].forEach((k) => next.delete(k));
     setParams(next, { replace: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The Rumble "Send to CRM" bookmark lands here: /integrations?rumble_import=1#d=<videos JSON>
+  useEffect(() => {
+    if (!params.get("rumble_import")) return;
+    const raw = new URLSearchParams(window.location.hash.slice(1)).get("d");
+    window.history.replaceState(null, "", "/integrations");
+    setParams({}, { replace: true });
+    if (!raw) return;
+    (async () => {
+      try {
+        const body = JSON.parse(raw);
+        const r = await api.post<{ imported: number; total_views: number; integration: Integration }>("/integrations/rumble/import", body);
+        setItems((l) => l.map((x) => (x.id === r.integration.id ? r.integration : x)));
+        push(`Rumble: imported ${num(r.imported)} videos · ${num(r.total_views)} lifetime views`, "success");
+        await loadChannels();
+      } catch (e) { toastError(e); }
+    })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = async (i: Integration, action: "test" | "sync") => {
@@ -161,6 +181,9 @@ export default function IntegrationsPage() {
                         {i.saved_secrets.includes("refresh_token") ? "Posting: on" : "Set up posting"}
                       </button>
                     )}
+                    {i.provider === "rumble" && (
+                      <button className="btn btn-sm" onClick={() => setRumbleHelp(true)} data-testid="rumble-bookmark-open">Send to CRM bookmark</button>
+                    )}
                     {p && <button className="btn btn-sm" onClick={() => setEditing({ provider: p, existing: i })}>Edit</button>}
                     <button className="btn btn-sm btn-danger" onClick={() => remove(i)}>Disconnect</button>
                   </div>
@@ -190,12 +213,32 @@ export default function IntegrationsPage() {
         <YoutubePosting integ={ytSetup} onClose={() => setYtSetup(null)}
           onChange={(u) => { setItems((l) => l.map((x) => (x.id === u.id ? u : x))); setYtSetup(u); }} />
       )}
+      {rumbleHelp && <RumbleBookmarkHelp onClose={() => setRumbleHelp(false)} />}
       {ebaySetup && (
         <EbaySetup integ={ebaySetup} onClose={() => setEbaySetup(null)}
           onChange={(u) => { setItems((l) => l.map((x) => (x.id === u.id ? u : x))); setEbaySetup(u); }}
           onSignedIn={async (u) => { setEbaySetup(null); push("eBay connected. Pulling your orders…", "success"); await run(u, "sync"); }} />
       )}
     </div>
+  );
+}
+
+function RumbleBookmarkHelp({ onClose }: { onClose: () => void }) {
+  const href = rumbleBookmarkCode(window.location.origin);
+  return (
+    <Modal title="Rumble views: Send to CRM bookmark" onClose={onClose} wide>
+      <p className="small">The CRM tries to read your video views from your public Rumble channel page on every sync. If Rumble's
+        anti-bot check blocks your server, this bookmark does the same job from your own browser in about 10 seconds.</p>
+      <div className="steps-box"><ol className="small">
+        <li>Show your bookmarks bar: press <strong>Ctrl + Shift + B</strong> in Chrome, Edge or Opera.</li>
+        <li>Drag this button onto the bookmarks bar: <BookmarkLink href={href}>Send to CRM</BookmarkLink></li>
+        <li>Go to your Rumble channel page (for example <span className="mono">rumble.com/c/YourChannel</span>) and click the <strong>Send to CRM</strong> bookmark.</li>
+        <li>It reads your videos pages (the tab title shows the progress), then opens this CRM and imports the views, likes and comments.</li>
+      </ol></div>
+      <p className="small muted">Can't drag? Right-click the bookmarks bar → Add page, name it “Send to CRM”, and paste this as the URL:</p>
+      <div className="row"><input readOnly value={href} className="mono small" style={{ flex: 1 }} onFocus={(e) => e.target.select()} aria-label="Bookmark code" /><Copy text={href} /></div>
+      <p className="small muted">The bookmark only sends data to this CRM address ({window.location.origin}). If you open the CRM from a different address, make the bookmark again from there.</p>
+    </Modal>
   );
 }
 

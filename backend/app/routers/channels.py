@@ -34,7 +34,7 @@ def list_channels(db: Session = Depends(get_db)):
         out.append(ChannelStats(
             **ChannelOut.model_validate(ch).model_dump(),
             contacts=contacts.get(ch.id, 0), open_deals=open_deals.get(ch.id, 0),
-            won_revenue=float(won.get(ch.id) or 0), posts=p[0] or 0, views=p[1] or 0, engagement=p[2] or 0,
+            won_revenue=float(won.get(ch.id) or 0), posts=p[0] or 0, views=max(ch.total_views or 0, p[1] or 0), engagement=p[2] or 0,
         ))
     return out
 

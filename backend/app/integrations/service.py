@@ -55,6 +55,18 @@ def test_integration(db: Session, integ: Integration) -> tuple[bool, str]:
         return False, f"{PROVIDERS[integ.provider].INFO.name}: {type(e).__name__}: {e}"
 
 
+def update_total_views(db: Session, ctx: base.SyncContext) -> None:
+    """Lifetime views for the channel: the platform's own total when the provider reports one
+    (ctx.stats["total_views"]), otherwise the sum of every synced post's current views."""
+    from sqlalchemy import func, select
+    from ..models import Post
+    summed = int(db.scalar(select(func.coalesce(func.sum(Post.views), 0)).where(Post.channel_id == ctx.channel.id)) or 0)
+    reported = ctx.stats.get("total_views")
+    total = max(int(reported), summed) if reported is not None else summed
+    ctx.channel.total_views = total
+    ctx.stats["total_views"] = total
+
+
 def run_sync(db: Session, integ: Integration) -> Integration:
     lock = _lock(integ.id)
     if not lock.acquire(blocking=False):
@@ -68,6 +80,7 @@ def run_sync(db: Session, integ: Integration) -> Integration:
                 ctx = _context(db, integ, client)
                 PROVIDERS[integ.provider].sync(ctx)
                 db.flush()
+                update_total_views(db, ctx)
             integ.last_status, integ.last_error = "ok", ""
             integ.last_sync_at = started
             integ.last_result = json.dumps({**ctx.stats, "warnings": ctx.warnings,

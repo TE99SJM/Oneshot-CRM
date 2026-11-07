@@ -77,7 +77,7 @@ def sync(ctx: SyncContext) -> None:
     ctx.channel.handle = ctx.channel.handle or ch["snippet"].get("customUrl", "")
     ctx.channel.url = ctx.channel.url or f"https://www.youtube.com/channel/{ch['id']}"
     ctx.stats["followers"] = ctx.channel.followers
-    ctx.stats["total_channel_views"] = int(stats.get("viewCount", 0))
+    ctx.stats["total_views"] = int(stats.get("viewCount", 0))      # lifetime channel views (all videos)
 
     uploads = ch.get("contentDetails", {}).get("relatedPlaylists", {}).get("uploads")
     if not uploads:

@@ -9,7 +9,7 @@ export interface User { id: number; email: string; name: string }
 export interface Channel {
   id: number; name: string; kind: ChannelKind; platform: string; handle: string; url: string;
   followers: number; monthly_cost: number; active: boolean; notes: string; created_at: string;
-  contacts?: number; open_deals?: number; won_revenue?: number; posts?: number; views?: number; engagement?: number;
+  contacts?: number; open_deals?: number; won_revenue?: number; posts?: number; views?: number; engagement?: number; total_views?: number;
 }
 
 export interface Contact {
@@ -44,9 +44,10 @@ export interface Dashboard {
     contacts: number; new_contacts: number; customers: number; open_deals: number;
     pipeline_value: number; weighted_pipeline: number; won_revenue: number; won_deals: number; won_revenue_total: number;
     win_rate: number | null; closed_deals: number; followers: number; posts_published: number; views: number;
+    views_gained: number | null; views_history_since: string | null; views_lifetime: number;
     engagement_rate: number | null; monthly_channel_cost: number;
   };
-  channels: { channel_id: number | null; channel: string; leads: number; won: number; pipeline: number; views: number }[];
+  channels: { channel_id: number | null; channel: string; leads: number; won: number; pipeline: number; views: number; lifetime_views?: number }[];
   funnels: { id: number; name: string; total: number; conversion: number | null;
              stages: { id: number; name: string; kind: StageKind; count: number; value: number }[] }[];
   upcoming_posts: Post[];

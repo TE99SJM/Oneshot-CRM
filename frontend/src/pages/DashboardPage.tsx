@@ -10,6 +10,8 @@ import { channelName, useCrm } from "../store/crmStore";
 import { toastError } from "../store/toastStore";
 import type { Dashboard } from "../types";
 
+const shortDate = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+
 export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [period, setPeriodState] = useState<Period>(loadPeriod);
@@ -44,7 +46,13 @@ export default function DashboardPage() {
 
       <div className="period-banner card" data-testid="dashboard-period-banner">
         Showing <strong>{info.label}</strong> <span className="muted">· {info.range}</span>
-        <span className="muted small period-hint">“Open pipeline” and “Audience” are always right now. Click any number to see it as a chart over time.</span>
+        <span className="muted small period-hint">“Open pipeline”, “Audience” and “Lifetime views” are always right now. Click any number to see it as a chart over time.</span>
+        {k.views_gained === null && k.views_lifetime > 0 && (
+          <span className="muted small period-hint" data-testid="views-history-hint">
+            Views gained per period appears once the CRM has a daily view total from before {info.short === "all time" ? "the start" : "this period started"}
+            {k.views_history_since ? ` (it started saving on ${shortDate(k.views_history_since)})` : ""}. Until then the views card counts views on videos posted in this period.
+          </span>
+        )}
       </div>
 
       {isEmpty && (
@@ -65,8 +73,18 @@ export default function DashboardPage() {
           onClick={() => setChart("contacts")} testId="stat-contacts" />
         <Stat label="Audience" period="right now" value={num(k.followers)} sub="followers / subscribers"
           onClick={() => setChart("audience")} testId="stat-audience" />
-        <Stat label="Views" period={info.short} value={num(k.views)} sub={`${k.posts_published} posts · ${pct(k.engagement_rate)} engagement`}
-          onClick={() => setChart("views")} testId="stat-views" />
+        {k.views_gained !== null ? (
+          <Stat label="Views gained" period={info.short} value={num(k.views_gained)}
+            sub={`all channels · ${num(k.views)} on ${k.posts_published} new posts`}
+            onClick={() => setChart("views_gained")} testId="stat-views" />
+        ) : (
+          <Stat label="Views on new posts" period={info.short} value={num(k.views)}
+            sub={`${k.posts_published} posts in ${info.short} · ${pct(k.engagement_rate)} engagement`}
+            onClick={() => setChart("views")} testId="stat-views" />
+        )}
+        <Stat label="Lifetime views" period="all time" value={num(k.views_lifetime)}
+          sub={k.views_history_since ? `all channels · daily history since ${shortDate(k.views_history_since)}` : "all channels · sync to fill in"}
+          onClick={() => setChart("views_total")} testId="stat-views-lifetime" />
       </section>
 
       <section className="grid-2">
@@ -78,6 +96,19 @@ export default function DashboardPage() {
           <h3>New leads by source channel <span className="muted small">· {info.label}</span></h3>
           <BarList rows={data.channels.filter((c) => c.leads > 0).sort((a, b) => b.leads - a.leads)
             .map((c) => ({ label: c.channel, value: c.leads }))} />
+        </div>
+      </section>
+
+      <section className="grid-2">
+        <div className="card" data-testid="views-by-channel">
+          <h3>{k.views_gained !== null ? "Views gained" : "Views on new posts"} by channel <span className="muted small">· {info.label}</span></h3>
+          <BarList rows={data.channels.filter((c) => c.views > 0).sort((a, b) => b.views - a.views)
+            .map((c) => ({ label: c.channel, value: c.views }))} format={num} />
+        </div>
+        <div className="card" data-testid="lifetime-views-by-channel">
+          <h3>Lifetime views by channel <span className="muted small">· all time</span></h3>
+          <BarList rows={data.channels.filter((c) => (c.lifetime_views ?? 0) > 0).sort((a, b) => (b.lifetime_views ?? 0) - (a.lifetime_views ?? 0))
+            .map((c) => ({ label: c.channel, value: c.lifetime_views ?? 0 }))} format={num} />
         </div>
       </section>
 

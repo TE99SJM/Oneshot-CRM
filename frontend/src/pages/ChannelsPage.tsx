@@ -108,7 +108,7 @@ export default function ChannelsPage() {
                   <div><span className="mono">{num(c.open_deals)}</span><small>open deals</small></div>
                   <div><span className="mono">{money(c.won_revenue)}</span><small>won</small></div>
                   <div><span className="mono">{num(c.posts)}</span><small>posts</small></div>
-                  <div><span className="mono">{num(c.views)}</span><small>views</small></div>
+                  <div><span className="mono">{num(c.views)}</span><small>lifetime views</small></div>
                 </div>
                 {c.monthly_cost > 0 && <div className="muted small">{money(c.monthly_cost)}/mo{roi !== null && ` · ${roi.toFixed(1)}× lifetime return on monthly cost`}</div>}
               </article>

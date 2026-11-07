@@ -5,7 +5,7 @@ import { toastError } from "../store/toastStore";
 import { Period, PeriodPicker, periodInfo, tzOffset } from "./Period";
 import { linearTrend, periodLabel, SeriesPoint, TrendChart } from "./TrendChart";
 
-export type MetricKey = "won_revenue" | "open_pipeline" | "win_rate" | "contacts" | "new_contacts" | "audience" | "views";
+export type MetricKey = "won_revenue" | "open_pipeline" | "win_rate" | "contacts" | "new_contacts" | "audience" | "views" | "views_gained" | "views_total";
 
 type Series = {
   metric: MetricKey; label: string; kind: "sum" | "state" | "rate"; format: "money" | "pct" | "num"; bucket: string;
@@ -19,7 +19,9 @@ const EXPLAIN: Record<MetricKey, string> = {
   contacts: "How many contacts the CRM had at the end of each period.",
   new_contacts: "Contacts added in each period.",
   audience: "Followers and subscribers across your active channels, as saved by the CRM each day.",
-  views: "Views on posts published in each period.",
+  views: "Current views of the posts published in each period (an old video's views stay on the day it went up).",
+  views_gained: "How many views all your channels gained in each period, from the lifetime totals the CRM saves each day.",
+  views_total: "Lifetime views across your active channels at the end of each period, as saved by the CRM each day.",
 };
 
 const fmtFor = (f: Series["format"]) => (f === "money" ? (n: number) => money(n) : f === "pct" ? (n: number) => `${Math.round(n * 10) / 10}%` : (n: number) => num(Math.round(n)));
@@ -102,6 +104,13 @@ export default function StatChartModal({ metric: initialMetric, period: initialP
             <div className="segmented">
               <button className={metric === "contacts" ? "active" : ""} onClick={() => setMetric("contacts")}>Total contacts</button>
               <button className={metric === "new_contacts" ? "active" : ""} onClick={() => setMetric("new_contacts")}>New contacts</button>
+            </div>
+          )}
+          {(metric === "views" || metric === "views_gained" || metric === "views_total") && (
+            <div className="segmented" data-testid="views-switch">
+              <button className={metric === "views_gained" ? "active" : ""} onClick={() => setMetric("views_gained")}>Views gained</button>
+              <button className={metric === "views_total" ? "active" : ""} onClick={() => setMetric("views_total")}>Lifetime total</button>
+              <button className={metric === "views" ? "active" : ""} onClick={() => setMetric("views")}>On new posts</button>
             </div>
           )}
           {canRun && (

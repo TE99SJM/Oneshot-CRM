@@ -318,3 +318,4 @@ textarea { resize: vertical; }
 .code-row { margin: 4px 0; gap: 8px; align-items: center; }
 .code-row code { flex: 1; min-width: 0; overflow-wrap: anywhere; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; }
 .ebay-step details summary { cursor: pointer; margin-top: 10px; color: var(--primary); }
+.bookmarklet { cursor: grab; display: inline-block; margin-left: 6px; }

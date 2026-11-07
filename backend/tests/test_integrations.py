@@ -196,7 +196,7 @@ def test_rumble_blocked(auth, monkeypatch):
     mock(monkeypatch, lambda req: httpx.Response(403, text="cf"))
     i = connect(auth, "rumble", {"channel_url": "https://rumble.com/c/Me"})
     r = auth.post(f"/api/integrations/{i['id']}/sync").json()
-    assert r["last_status"] == "error" and "Live Stream API" in r["last_error"]
+    assert r["last_status"] == "error" and "Send to CRM" in r["last_error"]
 
 
 def test_migration_adds_columns(tmp_path):

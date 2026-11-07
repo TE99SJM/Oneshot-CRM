@@ -14,22 +14,52 @@ METRICS = {
     "contacts": ("Contacts", "state", "num"),
     "new_contacts": ("New contacts", "sum", "num"),
     "audience": ("Audience", "state", "num"),
-    "views": ("Views", "sum", "num"),
+    "views": ("Views on new posts", "sum", "num"),
+    "views_gained": ("Views gained", "sum", "num"),
+    "views_total": ("Lifetime views", "state", "num"),
 }
 
 
 def record_snapshots(db: Session) -> None:
-    """Save today's audience total (followers/subscribers across active channels). Safe to call often."""
+    """Save today's audience total (followers/subscribers across active channels) and lifetime views
+    (overall and per channel). One row per metric per day, updated in place. Safe to call often."""
     today = utcnow().date()
-    total = float(sum(c.followers for c in db.scalars(select(Channel)).all() if c.active))
-    snap = db.scalars(select(StatSnapshot).where(StatSnapshot.metric == "audience", StatSnapshot.day == today)).first()
-    if snap is None:
-        db.add(StatSnapshot(metric="audience", day=today, value=total))
-    elif snap.value != total:
-        snap.value = total
-    else:
-        return
-    db.commit()
+    channels = [c for c in db.scalars(select(Channel)).all() if c.active]
+    values = {"audience": float(sum(c.followers for c in channels)),
+              "views_total": float(sum(c.total_views or 0 for c in channels))}
+    for c in channels:
+        if c.total_views:
+            values[f"views_total:{c.id}"] = float(c.total_views)
+    existing = {s.metric: s for s in db.scalars(select(StatSnapshot).where(StatSnapshot.day == today)).all()}
+    changed = False
+    for metric, value in values.items():
+        snap = existing.get(metric)
+        if snap is None:
+            if metric == "views_total" and not value:
+                continue                       # nothing synced yet; don't start history at zero
+            db.add(StatSnapshot(metric=metric, day=today, value=value))
+            changed = True
+        elif snap.value != value:
+            snap.value = value
+            changed = True
+    if changed:
+        db.commit()
+
+
+def views_gained(db: Session, start_day: date | None, metric: str = "views_total") -> tuple[float | None, date | None]:
+    """Lifetime views now minus the last reading before start_day (UTC). (None, first_day) when the saved
+    history doesn't reach back that far yet."""
+    snaps = sorted(db.scalars(select(StatSnapshot).where(StatSnapshot.metric == metric)).all(), key=lambda s: s.day)
+    if not snaps:
+        return None, None
+    first = snaps[0].day
+    now = snaps[-1].value
+    if start_day is None:
+        return now, first                      # all time: everything counted so far
+    prior = [s for s in snaps if s.day < start_day]
+    if not prior:
+        return None, first
+    return max(0.0, now - prior[-1].value), first
 
 
 def _buckets(start: date, end: date, bucket: str) -> list[tuple[date, date]]:
@@ -61,7 +91,8 @@ def series(db: Session, metric: str, start: date | None, end: date | None, bucke
     deals = db.scalars(select(Deal)).all()
     contacts = db.scalars(select(Contact)).all()
     posts = [p for p in db.scalars(select(Post)).all() if p.status == "published" and p.published_at]
-    snaps = sorted(db.scalars(select(StatSnapshot).where(StatSnapshot.metric == "audience")).all(), key=lambda s: s.day)
+    snap_metric = "views_total" if metric in ("views_total", "views_gained") else "audience"
+    snaps = sorted(db.scalars(select(StatSnapshot).where(StatSnapshot.metric == snap_metric)).all(), key=lambda s: s.day)
 
     def deal_closed(d: Deal) -> datetime | None:
         return d.closed_at or (d.updated_at if d.status in ("won", "lost") else None)
@@ -76,6 +107,8 @@ def series(db: Session, metric: str, start: date | None, end: date | None, bucke
             "new_contacts": [local(c.created_at) for c in contacts],
             "views": [local(p.published_at) for p in posts],
             "audience": [s.day for s in snaps],
+            "views_total": [s.day for s in snaps],
+            "views_gained": [s.day for s in snaps],
         }[metric]
         dates = [d for d in dates if d]
         start = min(dates) if dates else end - timedelta(days=29)
@@ -107,7 +140,11 @@ def series(db: Session, metric: str, start: date | None, end: date | None, bucke
             value = sum(1 for c in contacts if inside(c.created_at))
         elif metric == "views":
             value = sum(p.views for p in posts if inside(p.published_at))
-        else:  # audience: last reading on or before the end of the period
+        elif metric == "views_gained":
+            end_snap = [x for x in snaps if x.day <= (cut - timedelta(seconds=1)).date()]
+            before = [x for x in snaps if x.day < lo]
+            value = max(0.0, end_snap[-1].value - before[-1].value) if end_snap and before else None
+        else:  # audience / views_total: last reading on or before the end of the period
             prior = [s for s in snaps if s.day <= (cut - timedelta(seconds=1)).date()]
             value = prior[-1].value if prior else None
         points.append({"start": lo.isoformat(), "end": hi.isoformat(),
@@ -120,6 +157,12 @@ def series(db: Session, metric: str, start: date | None, end: date | None, bucke
                 "after each sync, so this chart fills in over time.") if len(snaps) < 2 else ""
     elif metric == "views":
         note = "Each post's current view count is placed on the day it was published."
+    elif metric in ("views_total", "views_gained"):
+        first = snaps[0].day.isoformat() if snaps else "today"
+        note = (f"Views gained = lifetime views at the end of each period minus the end of the period before. "
+                f"The CRM started saving one lifetime-views reading per day on {first}, so earlier periods are blank."
+                if metric == "views_gained" else
+                f"One reading saved per day since {first}.")
     elif metric == "open_pipeline":
         note = "Rebuilt from when deals were created and closed, using each deal's current value."
     return {

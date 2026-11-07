@@ -88,6 +88,7 @@ class ChannelPatch(BaseModel):
 
 class ChannelOut(ChannelBase, ORM):
     id: int
+    total_views: int = 0          # lifetime views reported by the platform (or the sum of synced posts)
     created_at: datetime
 
 

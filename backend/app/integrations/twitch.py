@@ -5,8 +5,8 @@ HELIX = "https://api.twitch.tv/helix"
 
 INFO = ProviderInfo(
     key="twitch", name="Twitch", platform="twitch", channel_kind="social",
-    summary="Follower total, whether you're live (and viewer count), and your past broadcasts/clips with views.",
-    syncs=["Followers", "Live now + viewers", "Videos (views)"],
+    summary="Follower total, whether you're live (and viewer count), and your past broadcasts, highlights and clips with views.",
+    syncs=["Followers", "Live now + viewers", "Videos (views)", "Clips (views)"],
     fields=[
         FieldSpec("login", "Channel name", placeholder="theforge_sports",
                   help="The name in your channel URL: twitch.tv/<this part>."),
@@ -96,3 +96,22 @@ def sync(ctx: SyncContext) -> None:
         upsert_post(ctx, "twitch", v["id"], title=v.get("title") or "Twitch video", body=v.get("description", ""),
                     url=v.get("url", ""), published_at=parse_dt(v.get("published_at") or v.get("created_at")),
                     views=int(v.get("view_count", 0)))
+    # Clips made from your channel (by you or viewers) have their own view counts.
+    clips, cursor, pages = [], None, 0
+    while len(clips) < limit and pages < 10:
+        try:
+            data = _helix(ctx, token, "clips", broadcaster_id=u["id"], first=100, **({"after": cursor} if cursor else {}))
+        except SyncError as e:
+            ctx.warnings.append(f"Clips unavailable ({e}).")
+            break
+        clips += data.get("data", [])
+        cursor = (data.get("pagination") or {}).get("cursor")
+        pages += 1
+        if not cursor:
+            break
+    for c in clips[:limit]:
+        upsert_post(ctx, "twitch", f"clip:{c['id']}", title=f"Clip: {c.get('title') or 'Twitch clip'}",
+                    url=c.get("url", ""), published_at=parse_dt(c.get("created_at")), views=int(c.get("view_count", 0)))
+    if not videos and not clips:
+        ctx.warnings.append("No past broadcasts or clips found. Twitch deletes past broadcasts after 7-60 days unless you "
+                            "turn on “Store past broadcasts” (Creator Dashboard → Settings → Stream) or save them as highlights.")

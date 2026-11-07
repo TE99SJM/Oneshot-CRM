@@ -30,6 +30,7 @@ class Channel(Base):
     handle: Mapped[str] = mapped_column(String(120), default="")
     url: Mapped[str] = mapped_column(String(500), default="")
     followers: Mapped[int] = mapped_column(Integer, default=0)
+    total_views: Mapped[int] = mapped_column(Integer, default=0)       # lifetime views (all videos/posts)
     monthly_cost: Mapped[float] = mapped_column(Float, default=0.0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str] = mapped_column(Text, default="")
