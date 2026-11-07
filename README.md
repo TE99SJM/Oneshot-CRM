@@ -10,7 +10,7 @@ A self-hosted CRM for managing **social media channels, sales channels, sales fu
 
 | Area | What you can do |
 |---|---|
-| Dashboard | Won revenue (30 days / all time), open & weighted pipeline, win rate, audience size, 30-day views and engagement, revenue and leads by channel, 6-month revenue chart, funnel stage counts, upcoming posts, open follow-ups |
+| Dashboard | Period picker (last 30 / 60 / 90 days, year to date, a full calendar year, or all time — remembered between visits) with a banner saying exactly which dates you're looking at. Won revenue, open & weighted pipeline, win rate, contacts, audience and views; click any of them for a full-screen chart over time with a trendline. Revenue and leads by channel, revenue chart, funnel stage counts, upcoming posts, open follow-ups |
 | Pipeline | Multiple funnels with custom stages (probability %, open/won/lost); drag-and-drop deal board; dropping a deal in a Won/Lost stage closes it automatically |
 | Contacts | Leads → prospects → customers, source-channel attribution, tags, search/filters, activity timeline (notes, calls, emails, DMs, meetings, tasks), CSV import/export |
 | Content | Monthly content calendar + list view, idea bank, post status (idea/draft/scheduled/published), per-post metrics (views, likes, comments, shares, clicks) |
@@ -142,6 +142,12 @@ The **Orders** tab opens on the last 30 days (pick Last 7/90 days, This year, Al
 
 The **Pipeline** also opens on the last 30 days: it shows deals created or closed (won/lost) in the selected range. Pick **All time** to see everything.
 
+## Dashboard charts
+
+- **Pick the period** at the top right of the Dashboard: Last 30 days (default), Last 60 days, Last 90 days, Year to date, Full year (choose the year), or All time. The banner under the title always says which dates are shown. "Open pipeline" and "Audience" are always the number right now, and their cards say so.
+- **Click any of the six numbers** to open it full screen: time across the bottom, the number up the side, and a dashed straight-line trendline (least-squares fit). Hover to see each day/week/month. You can change the period, group by day/week/month, switch revenue and views to a running total, and turn the trendline off. Press Esc or × to close.
+- **Where the history comes from:** revenue, win rate, contacts and pipeline are rebuilt from your deals and contacts. Views use each post's current view count on the day it was published. **Audience has no history from the platforms**, so the CRM now saves one reading per day; that chart starts on the day you install this update and fills in over time.
+
 ## Posting (Compose)
 
 The **Compose** tab sends one post to any mix of your **Facebook Page**, **Instagram** and **YouTube** connections.
@@ -262,7 +268,8 @@ Interactive docs: **http://localhost:8000/docs** (Swagger UI). All endpoints exc
 | `POST /api/auth/setup` | Create the first account (only when none exist) → token |
 | `POST /api/auth/login` | `{email, password}` → token |
 | `GET /api/auth/me` · `POST /api/auth/password` | Current user · change password |
-| `GET /api/dashboard` | KPIs, channel breakdown, funnels, monthly revenue, upcoming posts, open tasks |
+| `GET /api/dashboard?start=&end=&tz_offset=` | KPIs, channel breakdown and funnels for a period (local dates; omit both for all time), upcoming posts, open tasks |
+| `GET /api/dashboard/series/{metric}?start=&end=&bucket=auto\|day\|week\|month&tz_offset=` | Time series behind the full-screen charts. Metrics: `won_revenue`, `open_pipeline`, `win_rate`, `contacts`, `new_contacts`, `audience`, `views` |
 | `GET/POST /api/channels` · `GET/PATCH/DELETE /api/channels/{id}` | Channels (list includes computed stats) |
 | `GET /api/contacts?q=&status=&channel_id=&tag=&limit=&offset=` | Search/filter, returns `{items, total}` |
 | `POST /api/contacts` · `GET/PATCH/DELETE /api/contacts/{id}` | Contact CRUD |

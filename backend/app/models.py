@@ -285,3 +285,13 @@ class PublishTarget(Base):
     posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     job: Mapped[PublishJob] = relationship(back_populates="targets")
+
+
+class StatSnapshot(Base):
+    """One saved reading per metric per day, for numbers that have no history of their own (e.g. audience)."""
+    __tablename__ = "stat_snapshots"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    metric: Mapped[str] = mapped_column(String(40), index=True)
+    day: Mapped[date] = mapped_column(Date, index=True)                       # UTC day
+    value: Mapped[float] = mapped_column(Float, default=0.0)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

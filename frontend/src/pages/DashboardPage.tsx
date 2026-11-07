@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { Period, PeriodPicker, loadPeriod, periodInfo, savePeriod, tzOffset } from "../components/Period";
+import StatChartModal, { MetricKey } from "../components/StatChartModal";
+import { SeriesPoint, TrendChart } from "../components/TrendChart";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { Badge, BarList, Empty, Stat, statusTone } from "../components/ui";
@@ -9,10 +12,19 @@ import type { Dashboard } from "../types";
 
 export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
+  const [period, setPeriodState] = useState<Period>(loadPeriod);
+  const [chart, setChart] = useState<MetricKey | null>(null);
+  const [revenue, setRevenue] = useState<{ bucket: string; points: SeriesPoint[] } | null>(null);
   const channels = useCrm((s) => s.channels);
+  const info = periodInfo(period);
+  const setPeriod = (p: Period) => { savePeriod(p); setPeriodState(p); };
 
-  const load = () => api.get<Dashboard>("/dashboard").then(setData).catch(toastError);
-  useEffect(() => { load(); }, []);
+  const load = () => {
+    const q = { start: info.start, end: info.end, tz_offset: tzOffset() };
+    api.get<Dashboard>("/dashboard", q).then(setData).catch(toastError);
+    api.get<{ bucket: string; points: SeriesPoint[] }>("/dashboard/series/won_revenue", q).then(setRevenue).catch(() => setRevenue(null));
+  };
+  useEffect(() => { load(); }, [info.start, info.end]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function completeTask(id: number) {
     await api.patch(`/activities/${id}`, { done: true }).catch(toastError);
@@ -27,7 +39,13 @@ export default function DashboardPage() {
     <div className="page">
       <header className="page-head">
         <div><h1>Dashboard</h1><p className="muted">Social reach, sales pipeline and revenue across every channel.</p></div>
+        <PeriodPicker value={period} onChange={setPeriod} testId="dashboard-period" />
       </header>
+
+      <div className="period-banner card" data-testid="dashboard-period-banner">
+        Showing <strong>{info.label}</strong> <span className="muted">· {info.range}</span>
+        <span className="muted small period-hint">“Open pipeline” and “Audience” are always right now. Click any number to see it as a chart over time.</span>
+      </div>
 
       {isEmpty && (
         <div className="card callout">
@@ -37,21 +55,27 @@ export default function DashboardPage() {
       )}
 
       <section className="stats">
-        <Stat label="Won revenue (30d)" value={money(k.won_revenue_30d)} sub={`${money(k.won_revenue_total)} all time`} />
-        <Stat label="Open pipeline" value={money(k.pipeline_value)} sub={`${money(k.weighted_pipeline)} weighted · ${k.open_deals} deals`} />
-        <Stat label="Win rate" value={pct(k.win_rate)} sub="won ÷ closed deals" />
-        <Stat label="Contacts" value={num(k.contacts)} sub={`+${k.new_contacts_30d} in 30d · ${k.customers} customers`} />
-        <Stat label="Audience" value={num(k.followers)} sub="followers / subscribers" />
-        <Stat label="Views (30d)" value={num(k.views_30d)} sub={`${k.posts_published_30d} posts · ${pct(k.engagement_rate_30d)} engagement`} />
+        <Stat label="Won revenue" period={info.short} value={money(k.won_revenue)} sub={`${k.won_deals} deals won · ${money(k.won_revenue_total)} all time`}
+          onClick={() => setChart("won_revenue")} testId="stat-won_revenue" />
+        <Stat label="Open pipeline" period="right now" value={money(k.pipeline_value)} sub={`${money(k.weighted_pipeline)} weighted · ${k.open_deals} deals`}
+          onClick={() => setChart("open_pipeline")} testId="stat-open_pipeline" />
+        <Stat label="Win rate" period={info.short} value={pct(k.win_rate)} sub={`won ÷ ${k.closed_deals} closed deals`}
+          onClick={() => setChart("win_rate")} testId="stat-win_rate" />
+        <Stat label="Contacts" period="total" value={num(k.contacts)} sub={`+${k.new_contacts} in ${info.short} · ${k.customers} customers`}
+          onClick={() => setChart("contacts")} testId="stat-contacts" />
+        <Stat label="Audience" period="right now" value={num(k.followers)} sub="followers / subscribers"
+          onClick={() => setChart("audience")} testId="stat-audience" />
+        <Stat label="Views" period={info.short} value={num(k.views)} sub={`${k.posts_published} posts · ${pct(k.engagement_rate)} engagement`}
+          onClick={() => setChart("views")} testId="stat-views" />
       </section>
 
       <section className="grid-2">
         <div className="card">
-          <h3>Revenue by channel</h3>
+          <h3>Revenue by channel <span className="muted small">· {info.label}</span></h3>
           <BarList rows={data.channels.filter((c) => c.won > 0).map((c) => ({ label: c.channel, value: c.won, tone: "green" }))} format={money} />
         </div>
         <div className="card">
-          <h3>Leads by source channel</h3>
+          <h3>New leads by source channel <span className="muted small">· {info.label}</span></h3>
           <BarList rows={data.channels.filter((c) => c.leads > 0).sort((a, b) => b.leads - a.leads)
             .map((c) => ({ label: c.channel, value: c.leads }))} />
         </div>
@@ -59,22 +83,16 @@ export default function DashboardPage() {
 
       <section className="grid-2">
         <div className="card">
-          <h3>Won revenue, last 6 months</h3>
-          <div className="columns">
-            {data.revenue_by_month.map((m) => {
-              const max = Math.max(1, ...data.revenue_by_month.map((x) => x.won));
-              return (
-                <div key={m.month} className="column" title={money(m.won)}>
-                  <div className="column-val mono">{m.won ? money(m.won) : ""}</div>
-                  <div className="column-bar" style={{ height: `${(m.won / max) * 100}%` }} />
-                  <div className="column-label">{new Date(`${m.month}-15`).toLocaleDateString(undefined, { month: "short" })}</div>
-                </div>
-              );
-            })}
-          </div>
+          <div className="row-between"><h3>Won revenue <span className="muted small">· {info.label}</span></h3>
+            <button className="btn btn-sm" onClick={() => setChart("won_revenue")}>Full screen ↗</button></div>
+          {revenue && revenue.points.some((p) => p.value) ? (
+            <div className="mini-chart clickable" onClick={() => setChart("won_revenue")}>
+              <TrendChart points={revenue.points} bucket={revenue.bucket} format={(n) => money(n)} yLabel="Won revenue (USD)" compact />
+            </div>
+          ) : <Empty title={`No won revenue in ${info.label.toLowerCase()}`} />}
         </div>
         <div className="card">
-          <h3>Funnels</h3>
+          <h3>Funnels <span className="muted small">· deals started in {info.label.toLowerCase()}</span></h3>
           {data.funnels.length === 0 && <Empty title="No funnels yet"><Link to="/pipeline">Create one</Link></Empty>}
           {data.funnels.map((f) => (
             <div key={f.id} className="funnel-mini">
@@ -119,6 +137,7 @@ export default function DashboardPage() {
           )}
         </div>
       </section>
+      {chart && <StatChartModal metric={chart} period={period} onClose={() => setChart(null)} />}
     </div>
   );
 }

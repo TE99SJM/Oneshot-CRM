@@ -34,6 +34,11 @@ def _run_due() -> None:
                 log.info("sync %s #%s -> %s %s", integ.provider, integ.id, result.last_status, result.last_error)
             except Exception:  # pragma: no cover
                 log.exception("sync failed")
+        try:
+            from ..stats_history import record_snapshots
+            record_snapshots(db)
+        except Exception:  # pragma: no cover
+            log.exception("snapshot failed")
 
 
 async def scheduler_loop(interval_seconds: int = 60) -> None:

@@ -79,7 +79,7 @@ def test_posts_activities_dashboard(auth):
                                            "due_at": "2020-01-01T09:00:00"}).json()
     assert len(auth.get("/api/activities", params={"open_tasks": True}).json()) == 1
     dash = auth.get("/api/dashboard").json()
-    assert dash["kpis"]["posts_published_30d"] == 1 and dash["kpis"]["views_30d"] == 1000
+    assert dash["kpis"]["posts_published"] == 1 and dash["kpis"]["views"] == 1000
     assert dash["open_tasks"][0]["overdue"] is True
     auth.patch(f"/api/activities/{t['id']}", json={"done": True})
     assert auth.get("/api/activities", params={"open_tasks": True}).json() == []

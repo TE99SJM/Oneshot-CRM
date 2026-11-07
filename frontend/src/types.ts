@@ -41,15 +41,14 @@ export interface Activity {
 
 export interface Dashboard {
   kpis: {
-    contacts: number; new_contacts_30d: number; customers: number; open_deals: number;
-    pipeline_value: number; weighted_pipeline: number; won_revenue_30d: number; won_revenue_total: number;
-    win_rate: number | null; followers: number; posts_published_30d: number; views_30d: number;
-    engagement_rate_30d: number | null; monthly_channel_cost: number;
+    contacts: number; new_contacts: number; customers: number; open_deals: number;
+    pipeline_value: number; weighted_pipeline: number; won_revenue: number; won_deals: number; won_revenue_total: number;
+    win_rate: number | null; closed_deals: number; followers: number; posts_published: number; views: number;
+    engagement_rate: number | null; monthly_channel_cost: number;
   };
   channels: { channel_id: number | null; channel: string; leads: number; won: number; pipeline: number; views: number }[];
   funnels: { id: number; name: string; total: number; conversion: number | null;
              stages: { id: number; name: string; kind: StageKind; count: number; value: number }[] }[];
-  revenue_by_month: { month: string; won: number }[];
   upcoming_posts: Post[];
   open_tasks: Activity[];
 }

@@ -49,14 +49,20 @@ export function Field({ label, children, hint }: { label: string; children: Reac
   );
 }
 
-export function Stat({ label, value, sub }: { label: string; value: ReactNode; sub?: ReactNode }) {
-  return (
-    <div className="card stat">
-      <div className="stat-label">{label}</div>
+export function Stat({ label, value, sub, period, onClick, testId }: {
+  label: string; value: ReactNode; sub?: ReactNode; period?: string; onClick?: () => void; testId?: string;
+}) {
+  const body = (
+    <>
+      <div className="stat-label">{label}{period && <span className="stat-period">{period}</span>}</div>
       <div className="stat-value">{value}</div>
       {sub && <div className="stat-sub">{sub}</div>}
-    </div>
+      {onClick && <div className="stat-open" aria-hidden="true">View chart ↗</div>}
+    </>
   );
+  return onClick
+    ? <button type="button" className="card stat stat-button" onClick={onClick} data-testid={testId} title={`Open ${label} chart`}>{body}</button>
+    : <div className="card stat" data-testid={testId}>{body}</div>;
 }
 
 export function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: string }) {
