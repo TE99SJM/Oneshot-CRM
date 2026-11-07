@@ -56,6 +56,12 @@ def _split(provider: str, values: dict[str, str], old_config: dict, old_secrets:
         present = secrets.get(f.key) if f.secret else config.get(f.key)
         if f.required and not present:
             raise HTTPException(422, f"{f.label} is required")
+    validate = getattr(PROVIDERS[provider], "validate_config", None)
+    if validate:
+        try:
+            validate(config, secrets)
+        except SyncError as e:
+            raise HTTPException(422, str(e)) from e
     return config, secrets
 
 

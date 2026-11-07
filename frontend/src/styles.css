@@ -78,6 +78,15 @@ textarea { resize: vertical; }
 
 /* stats */
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.site-visitors { display: grid; gap: 12px; }
+.site-visitor-heading { flex-wrap: wrap; gap: 12px; }
+.site-visitor-heading h2, .site-visitor-heading p, .site-visitor-card h3 { margin: 0; }
+.site-visitor-card .row-between { flex-wrap: wrap; gap: 8px; }
+.site-visitor-card h3, .site-visitor-card .small { overflow-wrap: anywhere; }
+.site-visitor-total { display: flex; align-items: baseline; gap: 10px; margin: 20px 0 10px; }
+.site-visitor-total strong { font-size: 32px; letter-spacing: -1px; }
+.site-visitor-metrics { display: flex; flex-wrap: wrap; gap: 24px; }
+.site-visitor-empty p { margin: 8px 0 16px; }
 .stat-label { font-size: 12px; color: var(--muted); font-weight: 600; }
 .stat-value { font-size: 24px; font-weight: 700; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
 .stat-sub { font-size: 12px; color: var(--muted); }
