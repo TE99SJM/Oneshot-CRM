@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { Badge, Empty } from "../components/ui";
-import { dateTime } from "../format";
+import { dateTime, parseUtc } from "../format";
 import { toastError, useToasts } from "../store/toastStore";
-import type { ConversationDetail, ConversationRow } from "../types";
+import type { ConversationDetail, ConversationRow, MessagesStatus } from "../types";
 
 const SOURCE_LABEL: Record<string, string> = { tiktok_shop: "TikTok Shop" };
 
@@ -23,6 +23,7 @@ export default function MessagesPage() {
       .then((r) => { setRows(r.conversations); setUnread(r.unread_total); }).catch(toastError);
   }, [q, onlyUnread]);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
+  useEffect(() => { const t = setInterval(load, 60000); return () => clearInterval(t); }, [load]);   // new chats arrive in the background
   useEffect(() => { if (rows && openId === null && rows.length && window.innerWidth > 900) setOpenId(rows[0].id); }, [rows, openId]);
 
   return (
@@ -30,10 +31,11 @@ export default function MessagesPage() {
       <div className="page-head">
         <div>
           <h1>Messages</h1>
-          <p className="muted">Buyer chats from TikTok Shop, pulled in on every sync. Replies you send here go straight to the buyer in TikTok.</p>
+          <p className="muted">Buyer chats from TikTok Shop, checked every few minutes. Replies you send here go straight to the buyer in TikTok.</p>
         </div>
         {unread > 0 && <Badge tone="blue">{unread} unread</Badge>}
       </div>
+      <ChatStatus onChecked={load} />
       <div className="toolbar">
         <input className="search" placeholder="Search buyer or message…" value={q} onChange={(e) => setQ(e.target.value)} />
         <label className="check"><input type="checkbox" checked={onlyUnread} onChange={(e) => setOnlyUnread(e.target.checked)} /> Unread only</label>
@@ -121,6 +123,66 @@ function Thread({ id, onChanged }: { id: number; onChanged: () => void }) {
           <button className="btn btn-primary" disabled={busy || !text.trim()} onClick={send}>Send</button>
         </div>
       ) : <p className="muted small thread-reply">{c.reply_note || "Replies are closed for this chat."}</p>}
+    </div>
+  );
+}
+
+function ago(s: string | null) {
+  if (!s) return "never";
+  const m = Math.round((Date.now() - parseUtc(s).getTime()) / 60000);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : dateTime(s);
+}
+
+/** One line per TikTok Shop connection: are buyer chats switched on yet, and what to do if not. */
+function ChatStatus({ onChecked }: { onChecked: () => void }) {
+  const [rows, setRows] = useState<MessagesStatus[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => api.get<MessagesStatus[]>("/messages/status").then(setRows).catch(() => undefined), []);
+  useEffect(() => { load(); const t = setInterval(load, 60000); return () => clearInterval(t); }, [load]);
+  const check = async () => {
+    setBusy(true);
+    try {
+      const r = await api.post<(MessagesStatus & { result: { new_messages?: number } })[]>("/messages/check", {});
+      setRows(r);
+      const n = r.reduce((a, x) => a + (x.result?.new_messages ?? 0), 0);
+      useToasts.getState().push(r.some((x) => x.status === "active") ? `Checked — ${n} new message${n === 1 ? "" : "s"}` : "Checked — still waiting on TikTok");
+      onChecked();
+    } catch (e) { toastError(e); } finally { setBusy(false); }
+  };
+  if (!rows || rows.length === 0) return null;
+  const btn = <button className="btn btn-sm" disabled={busy} onClick={check}>{busy ? "Checking…" : "Check now"}</button>;
+  return (
+    <div style={{ display: "grid", gap: 8, marginBottom: 12 }} data-testid="chat-status">
+      {rows.map((r) => {
+        const label = rows.length > 1 ? `${r.name}: ` : "";
+        if (r.status === "not_signed_in") return (
+          <div key={r.integration_id} className="warn-box">
+            {label}TikTok Shop isn't signed in yet. Go to <Link to="/integrations">Integrations</Link> → TikTok Shop → Sign in with TikTok Shop.
+          </div>
+        );
+        if (r.status === "waiting_approval") return (
+          <div key={r.integration_id} className="warn-box" data-testid="waiting-approval">
+            <strong>{label}Buyer messages are waiting for TikTok to approve your app.</strong> Orders and products still sync normally.
+            <ol style={{ margin: "6px 0 6px 18px", padding: 0 }}>
+              <li>In TikTok Shop Partner Center open your app → Manage API / scopes, add <strong>Customer Service</strong> and submit for review.</li>
+              <li>When TikTok approves it, go to <Link to="/integrations">Integrations</Link> → TikTok Shop → <strong>Sign in with TikTok Shop</strong> again (new permissions only apply after a fresh sign-in).</li>
+              <li>That's it — chats start showing up here within a minute. Until then the CRM re-checks once an hour on its own.</li>
+            </ol>
+            <div className="row-tight between"><span className="small">Last checked {ago(r.checked_at)}{r.error ? ` · TikTok said: ${r.error}` : ""}</span>{btn}</div>
+          </div>
+        );
+        if (r.status === "error") return (
+          <div key={r.integration_id} className="warn-box" style={{ background: "var(--red-soft)", color: "var(--red)" }}>
+            <div className="row-tight between"><span>{label}Couldn't check buyer messages: {r.error || "unknown error"} (retrying every 15 min)</span>{btn}</div>
+          </div>
+        );
+        return (
+          <div key={r.integration_id} className="row-tight between muted small">
+            <span>{label}{r.status === "active" ? "Buyer messages on" : "Buyer messages not checked yet"} · checking {r.every_minutes ? `every ${r.every_minutes} min` : "with each full sync"} · last checked {ago(r.checked_at)}</span>
+            {btn}
+          </div>
+        );
+      })}
     </div>
   );
 }

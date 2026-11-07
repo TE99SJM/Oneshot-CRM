@@ -16,7 +16,7 @@ A self-hosted CRM for managing **social media channels, sales channels, sales fu
 | Content | Monthly content calendar + list view, idea bank, post status (idea/draft/scheduled/published), per-post metrics (views, likes, comments, shares, clicks) |
 | Compose | Write one post and send it to your Facebook Page, Instagram, TikTok and YouTube at once, now or scheduled; photos, carousels, videos, Reels; per-platform results with links, retry and cancel |
 | Channels | Social accounts, stores, marketplaces, email lists, ads, referrals, with followers, monthly cost, and computed leads / open deals / won revenue / views |
-| Messages | TikTok Shop buyer chats pulled in on every sync, with replies sent back to the buyer from the CRM |
+| Messages | TikTok Shop buyer chats checked every 5 minutes (unread count on the menu), with replies sent back to the buyer from the CRM |
 | Tasks | Follow-up list with due dates, overdue highlighting, linked contacts |
 | Settings | Change password, load demo data, import/export contacts, link to API docs |
 
@@ -230,7 +230,14 @@ What to expect before TikTok approves your app: sign-in only works for test user
 3. In the CRM: Integrations → **Connect TikTok Shop**, paste the **App key**, **App secret** and **Service ID**, pick the region, save. In the sign-in window save your `.ts.net` address and copy the return address (`…/api/oauth/tiktok-shop/callback`) into the app's **Redirect URL** in Partner Center.
 4. Once TikTok approves the app, click **Sign in with TikTok Shop**, choose your shop, and approve. Orders, buyers, the **TikTok Shop Sales** funnel, product counts and buyer chats sync right away.
 
-TikTok Shop buyer chats appear in **Messages**. Regular TikTok direct messages (DMs) are not included: TikTok only opens its Business Messaging API to verified business accounts after a data-security review, which a personal app can't realistically get.
+TikTok Shop buyer chats appear in **Messages**, checked every 5 minutes in the background (change **Check messages every (minutes)** on the connection; 0 = only with the regular 6-hour sync). The menu shows an unread count.
+
+**Buyer messages need TikTok's approval of the Customer Service permission**, which can come later than orders. Until then, orders and products sync normally and the Messages page shows a yellow "waiting for TikTok to approve" box with the steps. The CRM re-checks once an hour. When TikTok approves it:
+
+1. Integrations → TikTok Shop → **Sign in with TikTok Shop** again (TikTok only hands out new permissions on a fresh sign-in).
+2. Chats appear in Messages within a minute. Or click **Check now** on the Messages page.
+
+ Regular TikTok direct messages (DMs) are not included: TikTok only opens its Business Messaging API to verified business accounts after a data-security review, which a personal app can't realistically get.
 
 ### Connecting Gmail
 
@@ -320,6 +327,7 @@ Interactive docs: **http://localhost:8000/docs** (Swagger UI). All endpoints exc
 | `GET /api/oauth/tiktok/callback` · `GET /api/oauth/tiktok-shop/callback` | Public (no login): automatic return after TikTok / TikTok Shop sign-in, protected by a one-time `state` |
 | `GET /api/publish/tiktok/{integration_id}/creator-info` | TikTok's live posting options for your account (visibility choices, max length) |
 | `GET /api/messages?q=&unread_only=` · `GET /api/messages/{id}` | Buyer chats and their messages |
+| `GET /api/messages/status` · `POST /api/messages/check` | Whether buyer chats are on for each TikTok Shop connection (active / waiting_approval / error / not_signed_in) · check right now |
 | `POST /api/messages/{id}/reply` · `/refresh` · `/read` | Reply to a buyer, pull the full history, mark read |
 | `GET /api/orders/{id}/shipping-providers` · `POST /api/orders/{id}/ship` | TikTok Shop carriers for an order · mark shipped `{tracking_number, shipping_provider_id}` |
 | `POST /api/demo/seed` | Load demo data into an empty CRM |

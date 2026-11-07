@@ -52,6 +52,8 @@ INFO = ProviderInfo(
         FieldSpec("region", "Shop region", kind="select", options=["US", "Other (global)"], default="US"),
         FieldSpec("history_days", "Days of orders on first sync", required=False, default="365",
                   help="Later syncs only fetch orders that changed."),
+        FieldSpec("messages_every_minutes", "Check buyer messages every (minutes)", required=False, default="5",
+                  help="Buyer chats are checked this often, separately from the full sync. 0 = only with the full sync."),
         FieldSpec("shop_id", "Shop ID (only if you have several shops)", required=False,
                   help="Leave blank to use your first shop."),
     ],
@@ -68,6 +70,23 @@ INFO = ProviderInfo(
         "in-house app for your own shop is usually quicker than for public apps.",
     ],
 )
+
+
+class ShopApiError(SyncError):
+    """A TikTok Shop API error; .permission is True when the app lacks an approved scope."""
+    def __init__(self, msg: str, code=None, permission: bool = False):
+        super().__init__(msg)
+        self.code, self.permission = code, permission
+
+
+PERMISSION_CODES = {105001, 105002, 105005, 106001, 36009003, 36009004}
+PERMISSION_WORDS = ("scope", "permission", "not authorized", "unauthorized", "access denied", "no access", "not authorised")
+
+
+def is_permission_error(e: Exception) -> bool:
+    if isinstance(e, ShopApiError) and e.permission:
+        return True
+    return isinstance(e, SyncError) and any(w in str(e).lower() for w in PERMISSION_WORDS)
 
 
 # ---------------------------------------------------------------- signing
@@ -165,12 +184,12 @@ def _request(client, key: str, secret: str, token: str, method: str, path: str, 
         raise SyncError(f"TikTok Shop: HTTP {resp.status_code} {resp.text[:200]}") from None
     if data.get("code") not in (0, None):
         msg = data.get("message") or "error"
-        hint = ""
-        if "scope" in msg.lower() or "permission" in msg.lower() or data.get("code") in (105005, 105002):
-            hint = " Add the missing API scope to your app in Partner Center, wait for approval, then click Sign in again."
-        raise SyncError(f"TikTok Shop: {msg} (code {data.get('code')}).{hint}")
+        code = data.get("code")
+        perm = code in PERMISSION_CODES or any(w in msg.lower() for w in PERMISSION_WORDS) or resp.status_code == 403
+        hint = " Add the missing API scope to your app in Partner Center, wait for approval, then click Sign in again." if perm else ""
+        raise ShopApiError(f"TikTok Shop: {msg} (code {code}).{hint}", code, perm)
     if resp.status_code >= 400:
-        raise SyncError(f"TikTok Shop: HTTP {resp.status_code}")
+        raise ShopApiError(f"TikTok Shop: HTTP {resp.status_code}", None, resp.status_code == 403)
     return data.get("data") or {}
 
 
@@ -451,13 +470,107 @@ def mark_shipped(ctx: SyncContext, order: Order, tracking_number: str, provider_
     return call(ctx, "POST", f"/fulfillment/202309/orders/{order.external_id}/packages", None, body)
 
 
+# ---------------------------------------------------------------- buyer-message status
+WAITING_RECHECK_MINUTES = 60          # while TikTok hasn't approved Customer Service, look again hourly
+ERROR_RECHECK_MINUTES = 15
+
+
+def messages_every(config: dict) -> int:
+    try:
+        return max(0, min(int(str(config.get("messages_every_minutes") or "5").strip()), 1440))
+    except ValueError:
+        return 5
+
+
+def set_messages_status(db, integration_id: int | None, status: str, error: str = "") -> None:
+    """Remember whether buyer chats work: active | waiting_approval | error | not_signed_in (no commit)."""
+    from ..models import Integration
+    integ = db.get(Integration, integration_id) if integration_id else None
+    if integ is None:
+        return
+    cfg = json.loads(integ.config or "{}")
+    if cfg.get("messages_status") == "waiting_approval" and status == "active":
+        cfg["messages_activated_at"] = utcnow().isoformat()
+    cfg.update(messages_status=status, messages_error=error[:500], messages_checked_at=utcnow().isoformat())
+    integ.config = json.dumps(cfg)
+
+
+def _messages_step(ctx: SyncContext) -> None:
+    try:
+        _sync_messages(ctx)
+    except SyncError as e:
+        if is_permission_error(e):
+            set_messages_status(ctx.db, ctx.integration_id, "waiting_approval", str(e))
+            ctx.warnings.append("Buyer messages are waiting for TikTok to approve the Customer service permission. "
+                                "Once it's approved, click Sign in on this connection again. The Messages page shows the steps.")
+        else:
+            set_messages_status(ctx.db, ctx.integration_id, "error", str(e))
+            ctx.warnings.append(f"Buyer messages unavailable ({e}).")
+        return
+    set_messages_status(ctx.db, ctx.integration_id, "active")
+
+
+def check_messages(db, integ) -> dict:
+    """Pull only buyer chats (used by the frequent background check and the "Check now" button)."""
+    from . import base
+    from .crypto import decrypt_secrets
+    from .service import _context, _lock
+    lock = _lock(integ.id)
+    if not lock.acquire(blocking=False):
+        return {"skipped": "A sync is already running"}
+    try:
+        try:
+            secrets = decrypt_secrets(integ.secrets)
+        except ValueError:
+            secrets = {}
+        if not (secrets.get("refresh_token") or secrets.get("access_token")):
+            set_messages_status(db, integ.id, "not_signed_in")
+            db.commit()
+            return {"status": "not_signed_in"}
+        with base.make_client() as client:
+            ctx = _context(db, integ, client)
+            _messages_step(ctx)
+        db.commit()
+        cfg = json.loads(db.get(type(integ), integ.id).config or "{}")
+        return {"status": cfg.get("messages_status"), "error": cfg.get("messages_error", ""),
+                "conversations": ctx.stats.get("conversations", 0), "new_messages": ctx.stats.get("messages_synced", 0)}
+    except Exception as e:  # noqa: BLE001 - keep the background loop alive; record what went wrong
+        db.rollback()
+        set_messages_status(db, integ.id, "error", str(e))
+        db.commit()
+        return {"status": "error", "error": str(e)}
+    finally:
+        lock.release()
+
+
+def message_check_due(config: dict, now) -> bool:
+    from datetime import datetime
+    status = config.get("messages_status") or ""
+    every = messages_every(config)
+    if status == "waiting_approval":
+        every = WAITING_RECHECK_MINUTES
+    elif status == "error":
+        every = max(every, ERROR_RECHECK_MINUTES) if every else 0
+    elif status == "not_signed_in":
+        return False
+    if not every:
+        return False
+    last = config.get("messages_checked_at")
+    if not last:
+        return True
+    try:
+        return datetime.fromisoformat(last) + timedelta(minutes=every) <= now
+    except ValueError:
+        return True
+
+
 # ---------------------------------------------------------------- sync
 def sync(ctx: SyncContext) -> None:
     if ctx.config.get("shop_name"):
         ctx.channel.name = ctx.channel.name or ctx.config["shop_name"]
     _sync_orders(ctx)
-    for name, fn in (("Products", _sync_products), ("Buyer messages", _sync_messages)):
-        try:
-            fn(ctx)
-        except SyncError as e:
-            ctx.warnings.append(f"{name} unavailable ({e}).")
+    try:
+        _sync_products(ctx)
+    except SyncError as e:
+        ctx.warnings.append(f"Products unavailable ({e}).")
+    _messages_step(ctx)

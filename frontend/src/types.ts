@@ -121,6 +121,12 @@ export interface ConversationRow {
   can_reply: boolean; reply_note: string;
 }
 export interface ChatMessage { id: number; direction: "in" | "out"; sender_name: string; kind: string; body: string; sent_at: string | null; }
+export interface MessagesStatus {
+  integration_id: number; name: string; source: string; enabled: boolean; signed_in: boolean;
+  status: "active" | "waiting_approval" | "error" | "not_signed_in" | "unknown";
+  error: string; checked_at: string | null; activated_at: string | null; every_minutes: number;
+  recheck_minutes: number | null;
+}
 export interface ConversationDetail extends ConversationRow { messages: ChatMessage[]; }
 export interface OAuthInfo {
   name: string; signed_in: boolean; account: string; missing_scopes: string; redirect_in_link: boolean;

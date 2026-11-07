@@ -26,8 +26,9 @@ async def lifespan(_: FastAPI):
     reset_interrupted()
     tasks = []
     if os.getenv("SYNC_SCHEDULER", "true").strip().lower() not in {"0", "false", "no", "off"}:
-        from .integrations.scheduler import publish_loop, scheduler_loop
-        tasks = [asyncio.create_task(scheduler_loop()), asyncio.create_task(publish_loop())]
+        from .integrations.scheduler import messages_loop, publish_loop, scheduler_loop
+        tasks = [asyncio.create_task(scheduler_loop()), asyncio.create_task(publish_loop()),
+                 asyncio.create_task(messages_loop())]
     yield
     for task in tasks:
         task.cancel()

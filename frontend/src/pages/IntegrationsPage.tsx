@@ -89,7 +89,7 @@ export default function IntegrationsPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!syncAfterSignIn || !items.length) return;
-    const todo = items.filter((i) => i.provider === syncAfterSignIn && isSignedIn(i) && i.last_status !== "ok");
+    const todo = items.filter((i) => i.provider === syncAfterSignIn && isSignedIn(i) && (i.provider === "tiktok_shop" || i.last_status !== "ok"));
     setSyncAfterSignIn("");
     todo.forEach((i) => run(i, "sync"));
   }, [items, syncAfterSignIn]); // eslint-disable-line react-hooks/exhaustive-deps

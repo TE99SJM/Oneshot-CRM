@@ -23,6 +23,8 @@ class FakeTikTok:
         self.sent: list[dict] = []
         self.packages: list[dict] = []
         self.signs_ok = True
+        self.cs_approved = True
+        self.cs_calls = 0
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
         self.calls.append(req)
@@ -90,6 +92,10 @@ class FakeTikTok:
                 return httpx.Response(200, json={"code": 0, "data": {"shops": [
                     {"id": "7001", "name": "The Forge Shop", "region": "US", "cipher": "CIPHER1"}]}})
             assert q.get("shop_cipher") == "CIPHER1"
+            if path.startswith("/customer_service/"):
+                self.cs_calls += 1
+                if not self.cs_approved:
+                    return httpx.Response(200, json={"code": 105005, "message": "Access denied: scope not authorized"})
             if path == "/order/202309/orders/search":
                 return httpx.Response(200, json={"code": 0, "data": {"orders": [
                     {"id": "576001", "status": "AWAITING_SHIPMENT", "user_id": "buyer9", "create_time": NOW - 7200,
@@ -274,3 +280,71 @@ def test_tiktok_shop_orders_messages_and_shipping(auth, monkeypatch):
     assert r.status_code == 200, r.text
     assert fake.packages[0] == {"tracking_number": "9400100000000000000000", "shipping_provider_id": "SP_USPS",
                                 "order_line_item_ids": ["L1", "L2"]}
+
+
+def test_tiktok_shop_messages_wait_for_approval_then_turn_on(auth, monkeypatch):
+    """Before TikTok approves Customer service: orders still sync, Messages explains what to do and checks
+    hourly. After approval + signing in again, chats come in on the next background check."""
+    from datetime import timedelta
+    from app.integrations import scheduler
+    from app.models import Integration, utcnow
+    fake = FakeTikTok()
+    fake.cs_approved = False
+    _mock(monkeypatch, fake)
+    iid = auth.post("/api/integrations", json={"provider": "tiktok_shop", "values": {
+        "app_key": "ak", "app_secret": "as", "service_id": "123", "region": "US"}}).json()["id"]
+    st = auth.get("/api/messages/status").json()
+    assert st[0]["status"] == "not_signed_in" and st[0]["every_minutes"] == 5
+    pasted = "https://mserver.tail1234.ts.net/api/oauth/tiktok-shop/callback?code=SHOPCODE&state=x"
+    assert auth.post(f"/api/integrations/{iid}/oauth/connect", json={"pasted": pasted}).status_code == 200
+
+    r = auth.post(f"/api/integrations/{iid}/sync").json()
+    assert r["last_status"] == "ok" and r["last_result"]["orders_synced"] == 2       # orders unaffected
+    assert any("waiting for TikTok to approve" in w for w in r["last_result"]["warnings"])
+    st = auth.get("/api/messages/status").json()[0]
+    assert st["status"] == "waiting_approval" and st["recheck_minutes"] == 60 and "scope" in st["error"]
+
+    # background check doesn't hammer TikTok while waiting: next look is an hour later
+    calls = fake.cs_calls
+    scheduler.run_message_checks()
+    assert fake.cs_calls == calls
+    with SessionLocal() as db:
+        i = db.get(Integration, iid)
+        cfg = json.loads(i.config)
+        cfg["messages_checked_at"] = (utcnow() - timedelta(minutes=61)).isoformat()
+        i.config = json.dumps(cfg)
+        db.commit()
+    scheduler.run_message_checks()
+    assert fake.cs_calls == calls + 1                      # looked again, still waiting
+    assert auth.get("/api/messages/status").json()[0]["status"] == "waiting_approval"
+
+    # TikTok approves; the user signs in again -> next background check (within a minute) pulls chats
+    fake.cs_approved = True
+    assert auth.post(f"/api/integrations/{iid}/oauth/connect", json={"pasted": pasted}).status_code == 200
+    assert auth.get("/api/messages/status").json()[0]["status"] == "unknown"
+    scheduler.run_message_checks()
+    st = auth.get("/api/messages/status").json()[0]
+    assert st["status"] == "active" and st["error"] == ""
+    inbox = auth.get("/api/messages").json()
+    assert inbox["conversations"][0]["title"] == "Jane H" and inbox["unread_total"] == 1
+
+    # active: checked every 5 minutes, not every minute
+    calls = fake.cs_calls
+    scheduler.run_message_checks()
+    assert fake.cs_calls == calls
+    # "Check now" button
+    out = auth.post("/api/messages/check").json()
+    assert out[0]["status"] == "active" and out[0]["result"]["conversations"] == 1
+
+
+def test_message_check_schedule():
+    from datetime import datetime, timedelta
+    now = datetime(2026, 11, 7, 12, 0)
+    due = tiktok_shop.message_check_due
+    assert due({}, now)
+    assert not due({"messages_status": "active", "messages_checked_at": (now - timedelta(minutes=3)).isoformat()}, now)
+    assert due({"messages_status": "active", "messages_checked_at": (now - timedelta(minutes=5)).isoformat()}, now)
+    assert not due({"messages_status": "active", "messages_every_minutes": "0"}, now)
+    assert not due({"messages_status": "waiting_approval", "messages_checked_at": (now - timedelta(minutes=30)).isoformat()}, now)
+    assert due({"messages_status": "error", "messages_checked_at": (now - timedelta(minutes=15)).isoformat()}, now)
+    assert not due({"messages_status": "not_signed_in"}, now)

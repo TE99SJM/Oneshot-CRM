@@ -48,6 +48,44 @@ def list_conversations(source: str | None = None, q: str = "", unread_only: bool
     return {"conversations": [_conv_out(c) for c in rows], "unread_total": int(unread)}
 
 
+def _status_row(db: Session, integ: Integration) -> dict:
+    from ..integrations import tiktok_shop
+    from ..integrations.crypto import decrypt_secrets
+    cfg = json.loads(integ.config or "{}")
+    try:
+        sec = decrypt_secrets(integ.secrets)
+    except ValueError:
+        sec = {}
+    signed_in = bool(sec.get("refresh_token") or sec.get("access_token"))
+    status = cfg.get("messages_status") or ("unknown" if signed_in else "not_signed_in")
+    if not signed_in:
+        status = "not_signed_in"
+    return {"integration_id": integ.id, "name": integ.name, "source": "tiktok_shop", "enabled": integ.enabled,
+            "signed_in": signed_in, "status": status, "error": cfg.get("messages_error", ""),
+            "checked_at": cfg.get("messages_checked_at"), "activated_at": cfg.get("messages_activated_at"),
+            "every_minutes": tiktok_shop.messages_every(cfg),
+            "recheck_minutes": tiktok_shop.WAITING_RECHECK_MINUTES if status == "waiting_approval" else None}
+
+
+@router.get("/status")
+def messages_status(db: Session = Depends(get_db)):
+    """Whether buyer chats work for each TikTok Shop connection (waiting for approval, active, error…)."""
+    rows = db.scalars(select(Integration).where(Integration.provider == "tiktok_shop").order_by(Integration.id)).all()
+    return [_status_row(db, i) for i in rows]
+
+
+@router.post("/check")
+def check_now(db: Session = Depends(get_db)):
+    """Check every TikTok Shop connection for new buyer messages right now."""
+    from ..integrations import tiktok_shop
+    out = []
+    for integ in db.scalars(select(Integration).where(Integration.provider == "tiktok_shop").order_by(Integration.id)).all():
+        result = tiktok_shop.check_messages(db, integ)
+        db.expire_all()
+        out.append({**_status_row(db, db.get(Integration, integ.id)), "result": result})
+    return out
+
+
 @router.get("/{conv_id}")
 def get_conversation(conv_id: int, db: Session = Depends(get_db)):
     c = get_or_404(db, Conversation, conv_id)

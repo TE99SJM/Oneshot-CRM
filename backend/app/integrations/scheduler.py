@@ -61,3 +61,29 @@ async def publish_loop(interval_seconds: int = 30) -> None:
         except Exception:  # pragma: no cover
             log.exception("publish scheduler error")
         await asyncio.sleep(interval_seconds)
+
+
+def run_message_checks() -> None:
+    """Frequent buyer-chat check for TikTok Shop, separate from the (6-hourly) full sync."""
+    import json
+    from . import tiktok_shop
+    with SessionLocal() as db:
+        now = utcnow()
+        for integ in db.scalars(select(Integration).where(Integration.enabled.is_(True),
+                                                          Integration.provider == "tiktok_shop")).all():
+            if integ.last_status == "running":
+                continue
+            if not tiktok_shop.message_check_due(json.loads(integ.config or "{}"), now):
+                continue
+            result = tiktok_shop.check_messages(db, integ)
+            log.info("messages %s #%s -> %s", integ.provider, integ.id, result)
+
+
+async def messages_loop(interval_seconds: int = 60) -> None:
+    await asyncio.sleep(20)
+    while True:
+        try:
+            await asyncio.to_thread(run_message_checks)
+        except Exception:  # pragma: no cover
+            log.exception("message check error")
+        await asyncio.sleep(interval_seconds)

@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
+import { api } from "../api/client";
 import { useAuth } from "../store/authStore";
 
 const NAV = [
@@ -18,6 +20,11 @@ const NAV = [
 
 export default function Layout() {
   const { user, appName, logout } = useAuth();
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    const get = () => api.get<{ unread_total: number }>("/messages?limit=1").then((r) => setUnread(r.unread_total)).catch(() => undefined);
+    get(); const t = setInterval(get, 60000); return () => clearInterval(t);
+  }, []);
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -29,6 +36,7 @@ export default function Layout() {
           {NAV.map((n) => (
             <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
               {n.label}
+              {n.to === "/messages" && unread > 0 && <span className="pill-count" style={{ marginLeft: 6 }}>{unread}</span>}
             </NavLink>
           ))}
         </nav>

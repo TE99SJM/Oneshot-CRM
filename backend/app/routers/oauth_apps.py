@@ -51,6 +51,9 @@ def finish_signin(db: Session, integ: Integration, code: str) -> Integration:
     cfg.update(result.get("config") or {})
     cfg["oauth_account"] = result.get("account") or ""
     cfg.pop("oauth_return_to", None)
+    if integ.provider == "tiktok_shop":           # new permissions may have come with this sign-in: check chats now
+        for k in ("messages_status", "messages_error", "messages_checked_at"):
+            cfg.pop(k, None)
     integ.secrets, integ.config = encrypt_secrets(secrets), json.dumps(cfg)
     integ.last_status, integ.last_error = "idle", ""
     db.commit()
