@@ -57,6 +57,7 @@ class SyncContext:
     last_sync_at: datetime | None
     stats: dict = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    integration_id: int | None = None
 
     def count(self, key: str, n: int = 1) -> None:
         self.stats[key] = self.stats.get(key, 0) + n

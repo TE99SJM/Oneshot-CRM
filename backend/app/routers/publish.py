@@ -20,7 +20,7 @@ from ..publishing.common import PublishInput
 router = APIRouter(prefix="/api/publish", tags=["publish"], dependencies=[Depends(current_user)])
 public_router = APIRouter(tags=["publish"])          # no auth: platforms fetch media from here
 
-POSTING_PROVIDERS = ("facebook", "instagram", "youtube")
+POSTING_PROVIDERS = ("facebook", "instagram", "tiktok", "youtube")
 
 
 class TargetIn(BaseModel):
@@ -87,8 +87,9 @@ def targets(db: Session = Depends(get_db)):
         out.append({"integration_id": i.id, "platform": i.provider, "name": i.name, "enabled": i.enabled,
                     "channel_id": i.channel_id, "channel_name": i.channel.name if i.channel else None,
                     "ready": ready, "note": note,
-                    "account": cfg.get("upload_channel_title", "") if i.provider == "youtube" else "",
-                    "public_media": bool(runner.public_base(db, i)) if i.provider == "instagram" else None})
+                    "account": (cfg.get("upload_channel_title", "") if i.provider == "youtube"
+                                else cfg.get("oauth_account", "") if i.provider == "tiktok" else ""),
+                    "public_media": bool(runner.public_base(db, i)) if i.provider in ("instagram", "tiktok") else None})
     return out
 
 
@@ -274,3 +275,23 @@ def public_media(rest: str, db: Session = Depends(get_db)):
     if not path.exists():
         raise HTTPException(404, "Not found")
     return FileResponse(path, media_type=mime, headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.get("/tiktok/{integration_id}/creator-info")
+def tiktok_creator_info(integration_id: int, db: Session = Depends(get_db)):
+    """Live posting settings for the signed-in TikTok account (TikTok requires showing these before each post)."""
+    from ..integrations import base
+    from ..integrations.base import SyncError
+    from ..integrations.service import _context
+    from ..publishing import tiktok as tt_pub
+    integ = db.get(Integration, integration_id)
+    if integ is None or integ.provider != "tiktok":
+        raise HTTPException(404, "TikTok connection not found")
+    try:
+        with base.make_client() as client:
+            info = tt_pub.creator_info(_context(db, integ, client))
+    except SyncError as e:
+        db.rollback()
+        raise HTTPException(422, str(e)) from e
+    db.commit()
+    return info

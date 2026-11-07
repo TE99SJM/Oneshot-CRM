@@ -88,3 +88,59 @@ def export_orders(q: str | None = None, state: str | None = None, channel_id: in
 def get_order(order_id: int, db: Session = Depends(get_db)):
     o = get_or_404(db, Order, order_id)
     return {**_row(o), "raw": json.loads(o.raw or "{}"), "payments": json.loads(o.payments or "[]")}
+
+
+# ---------------------------------------------------------------- TikTok Shop: mark as shipped
+from fastapi import HTTPException  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
+
+
+def _tts_ctx(db: Session, o):
+    from ..integrations import base
+    from ..integrations.service import _context
+    from ..models import Integration
+    if o.source != "tiktok_shop":
+        raise HTTPException(422, "Only TikTok Shop orders can be marked shipped here")
+    integ = db.scalar(select(Integration).where(Integration.provider == "tiktok_shop",
+                                                Integration.channel_id == o.channel_id)) \
+        or db.scalar(select(Integration).where(Integration.provider == "tiktok_shop"))
+    if integ is None:
+        raise HTTPException(409, "The TikTok Shop connection was removed from Integrations")
+    client = base.make_client()
+    return integ, client, _context(db, integ, client)
+
+
+@router.get("/{order_id}/shipping-providers")
+def tts_shipping_providers(order_id: int, db: Session = Depends(get_db)):
+    from ..integrations import tiktok_shop
+    from ..integrations.base import SyncError
+    o = get_or_404(db, Order, order_id)
+    integ, client, ctx = _tts_ctx(db, o)
+    try:
+        with client:
+            return tiktok_shop.shipping_providers(ctx, o)
+    except SyncError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+class ShipIn(BaseModel):
+    tracking_number: str = Field(min_length=3, max_length=100)
+    shipping_provider_id: str = Field(min_length=1, max_length=60)
+
+
+@router.post("/{order_id}/ship")
+def tts_ship(order_id: int, data: ShipIn, db: Session = Depends(get_db)):
+    from ..integrations import tiktok_shop
+    from ..integrations.base import SyncError
+    from ..integrations.service import run_sync
+    o = get_or_404(db, Order, order_id)
+    integ, client, ctx = _tts_ctx(db, o)
+    try:
+        with client:
+            result = tiktok_shop.mark_shipped(ctx, o, data.tracking_number, data.shipping_provider_id)
+    except SyncError as e:
+        db.rollback()
+        raise HTTPException(422, str(e)) from e
+    db.commit()
+    run_sync(db, integ)                    # pull the updated status and tracking back in
+    return {"ok": True, "package_id": result.get("package_id"), "warning": result.get("warning")}

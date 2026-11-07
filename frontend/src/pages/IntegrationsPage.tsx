@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { AppSignIn, isSignedIn } from "../components/AppSignIn";
 import { api } from "../api/client";
 import { Badge, Empty, Field, Modal } from "../components/ui";
 import { BookmarkLink, rumbleBookmarkCode } from "../components/RumbleBookmark";
@@ -31,6 +32,7 @@ const RESULT_LABEL: Record<string, string> = {
   followers: "followers", subscribers: "subscribers", total_channel_views: "channel views", total_views: "lifetime views", videos_read: "videos read", posts_created: "new posts",
   posts_updated: "posts updated", contacts_created: "new contacts", contacts_updated: "contacts updated",
   live_viewers: "watching live now", deals_created: "new deals", deals_updated: "deals updated", orders_synced: "orders", revenue_synced: "revenue",
+  likes: "total likes", products: "products", products_live: "live products", conversations: "buyer chats", messages_synced: "new messages",
 };
 
 function summary(r: Integration["last_result"]) {
@@ -50,6 +52,8 @@ export default function IntegrationsPage() {
   const [ebaySetup, setEbaySetup] = useState<Integration | null>(null);
   const [ytSetup, setYtSetup] = useState<Integration | null>(null);
   const [rumbleHelp, setRumbleHelp] = useState(false);
+  const [signIn, setSignIn] = useState<Integration | null>(null);
+  const [syncAfterSignIn, setSyncAfterSignIn] = useState("");
   const loadChannels = useCrm((s) => s.loadChannels);
   const push = useToasts((s) => s.push);
 
@@ -69,6 +73,26 @@ export default function IntegrationsPage() {
     ["youtube_posting", "channel", "message"].forEach((k) => next.delete(k));
     setParams(next, { replace: true });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // TikTok / TikTok Shop sign-in returns here: /integrations?tiktok_signin=connected|error (or tiktok_shop_signin=)
+  useEffect(() => {
+    for (const key of ["tiktok", "tiktok_shop"]) {
+      const v = params.get(`${key}_signin`);
+      if (!v) continue;
+      const name = key === "tiktok" ? "TikTok" : "TikTok Shop";
+      if (v === "connected") { push(`${name}: signed in${params.get("account") ? ` as ${params.get("account")}` : ""}. Pulling your data…`, "success"); setSyncAfterSignIn(key); }
+      else push(params.get("message") || `${name} sign-in didn't finish.`, "error");
+      const next = new URLSearchParams(params);
+      [`${key}_signin`, "account", "message"].forEach((k) => next.delete(k));
+      setParams(next, { replace: true });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!syncAfterSignIn || !items.length) return;
+    const todo = items.filter((i) => i.provider === syncAfterSignIn && isSignedIn(i) && i.last_status !== "ok");
+    setSyncAfterSignIn("");
+    todo.forEach((i) => run(i, "sync"));
+  }, [items, syncAfterSignIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The Rumble "Send to CRM" bookmark lands here: /integrations?rumble_import=1#d=<videos JSON>
   useEffect(() => {
@@ -181,6 +205,11 @@ export default function IntegrationsPage() {
                         {i.saved_secrets.includes("refresh_token") ? "Posting: on" : "Set up posting"}
                       </button>
                     )}
+                    {(i.provider === "tiktok" || i.provider === "tiktok_shop") && (
+                      <button className={`btn btn-sm ${isSignedIn(i) ? "" : "btn-primary"}`} onClick={() => setSignIn(i)} data-testid="app-signin-open">
+                        {isSignedIn(i) ? "Signed in" : "Sign in"}
+                      </button>
+                    )}
                     {i.provider === "rumble" && (
                       <button className="btn btn-sm" onClick={() => setRumbleHelp(true)} data-testid="rumble-bookmark-open">Send to CRM bookmark</button>
                     )}
@@ -203,6 +232,9 @@ export default function IntegrationsPage() {
             if (isNew && saved.provider === "ebay") {
               push(`${saved.name} saved. Finish the eBay setup steps next.`, "info");
               setEbaySetup(saved);
+            } else if (isNew && (saved.provider === "tiktok" || saved.provider === "tiktok_shop")) {
+              push(`${saved.name} saved. Sign in next.`, "info");
+              setSignIn(saved);
             } else if (isNew) {
               push(`${saved.name} saved. Running first sync…`, "info");
               await run(saved, "sync");
@@ -212,6 +244,15 @@ export default function IntegrationsPage() {
       {ytSetup && (
         <YoutubePosting integ={ytSetup} onClose={() => setYtSetup(null)}
           onChange={(u) => { setItems((l) => l.map((x) => (x.id === u.id ? u : x))); setYtSetup(u); }} />
+      )}
+      {signIn && (
+        <AppSignIn integ={signIn} onClose={() => setSignIn(null)}
+          onChange={(u) => {
+            setItems((l) => l.map((x) => (x.id === u.id ? u : x)));
+            const wasIn = isSignedIn(signIn);
+            setSignIn(u);
+            if (!wasIn && isSignedIn(u)) run(u, "sync");
+          }} />
       )}
       {rumbleHelp && <RumbleBookmarkHelp onClose={() => setRumbleHelp(false)} />}
       {ebaySetup && (

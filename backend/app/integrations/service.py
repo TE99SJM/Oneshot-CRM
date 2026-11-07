@@ -37,7 +37,7 @@ def ensure_channel(db: Session, integ: Integration) -> Channel:
 def _context(db: Session, integ: Integration, client) -> base.SyncContext:
     return base.SyncContext(db=db, client=client, channel=ensure_channel(db, integ),
                             config=json.loads(integ.config or "{}"), secrets=decrypt_secrets(integ.secrets),
-                            last_sync_at=integ.last_sync_at)
+                            last_sync_at=integ.last_sync_at, integration_id=integ.id)
 
 
 def test_integration(db: Session, integ: Integration) -> tuple[bool, str]:
@@ -64,7 +64,8 @@ def update_total_views(db: Session, ctx: base.SyncContext) -> None:
     reported = ctx.stats.get("total_views")
     total = max(int(reported), summed) if reported is not None else summed
     ctx.channel.total_views = total
-    ctx.stats["total_views"] = total
+    if total or reported is not None or ctx.channel.kind == "social":
+        ctx.stats["total_views"] = total          # stores with no videos don't show "0 lifetime views"
 
 
 def run_sync(db: Session, integ: Integration) -> Integration:

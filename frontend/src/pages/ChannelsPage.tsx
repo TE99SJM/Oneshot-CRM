@@ -18,7 +18,7 @@ function ago(iso: string | null) {
 
 // channel platform -> integration that can pull its data
 const LIVE_PROVIDERS: Record<string, string> = {
-  youtube: "youtube", facebook: "facebook", instagram: "instagram", square: "square", ebay: "ebay", gmail: "gmail", rumble: "rumble", twitch: "twitch",
+  youtube: "youtube", facebook: "facebook", instagram: "instagram", square: "square", ebay: "ebay", gmail: "gmail", rumble: "rumble", twitch: "twitch", tiktok: "tiktok",
 };
 
 function safeUrl(u: string) {
@@ -91,7 +91,7 @@ export default function ChannelsPage() {
                   {(() => {
                     const live = integrations.filter((i) => i.channel_id === c.id && i.enabled);
                     if (!live.length) {
-                      const provider = LIVE_PROVIDERS[(c.platform || "").toLowerCase()];
+                      const provider = (c.platform || "").toLowerCase() === "tiktok" && c.kind === "marketplace" ? "tiktok_shop" : LIVE_PROVIDERS[(c.platform || "").toLowerCase()];
                       return provider ? (
                         <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); navigate(`/integrations?provider=${provider}&channel=${c.id}`); }}>
                           Pull live data</button>

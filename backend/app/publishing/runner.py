@@ -11,11 +11,11 @@ from ..database import SessionLocal
 from ..integrations import base
 from ..integrations.service import _context
 from ..models import Integration, MediaFile, Post, PublishJob, PublishTarget, utcnow
-from . import facebook, instagram, media as media_store, youtube
+from . import facebook, instagram, media as media_store, tiktok, youtube
 from .common import PublishInput
 
 log = logging.getLogger("oneshot.publish")
-PUBLISHERS = {"facebook": facebook, "instagram": instagram, "youtube": youtube}
+PUBLISHERS = {"facebook": facebook, "instagram": instagram, "tiktok": tiktok, "youtube": youtube}
 FINAL = {"done", "partial", "failed", "canceled"}
 KEEP_MEDIA = timedelta(days=14)
 _running: set[int] = set()
@@ -27,6 +27,10 @@ def readiness(integ: Integration, secrets: dict) -> tuple[bool, str]:
     if integ.provider == "youtube":
         if not secrets.get("refresh_token"):
             return False, "Posting not set up yet: Integrations → YouTube → “Set up posting”."
+        return True, ""
+    if integ.provider == "tiktok":
+        if not secrets.get("refresh_token") and not secrets.get("access_token"):
+            return False, "Not signed in yet: Integrations → TikTok → “Sign in with TikTok”."
         return True, ""
     if not secrets.get("page_token"):
         return False, "No Page token saved."
@@ -58,7 +62,7 @@ def job_media(db, job: PublishJob) -> list[MediaFile]:
 def make_input(db, job: PublishJob, target: PublishTarget, integ: Integration | None) -> PublishInput:
     return PublishInput(title=job.title, text=job.text, link=job.link, media=job_media(db, job),
                         options=json.loads(target.options or "{}"),
-                        public_base=public_base(db, integ) if target.platform == "instagram" else "")
+                        public_base=public_base(db, integ) if target.platform in ("instagram", "tiktok") else "")
 
 
 def post_title(job: PublishJob) -> str:

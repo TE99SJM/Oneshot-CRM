@@ -1,10 +1,10 @@
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { DateRangePicker, Range, defaultRange } from "../components/DateRange";
 import { api } from "../api/client";
 import { Badge, Drawer, Empty, Stat } from "../components/ui";
 import { dateTime, money2 as money, num } from "../format";
-import { toastError } from "../store/toastStore";
+import { toastError, useToasts } from "../store/toastStore";
 import type { Json, OrderDetail, OrderPage, OrderRow } from "../types";
 
 const STATE_TONE: Record<string, string> = { COMPLETED: "green", OPEN: "amber", CANCELED: "red", DRAFT: "neutral" };
@@ -64,7 +64,7 @@ export default function OrdersPage() {
   return (
     <div className="page">
       <header className="page-head">
-        <div><h1>Orders</h1><p className="muted">Orders from Square and eBay with items, payment, shipping and refund details. Shows the last 30 days unless you pick another range.</p></div>
+        <div><h1>Orders</h1><p className="muted">Orders from Square, eBay and TikTok Shop with items, payment, shipping and refund details. Shows the last 30 days unless you pick another range.</p></div>
         <button className="btn" onClick={exportCsv}>Export CSV</button>
       </header>
 
@@ -78,7 +78,7 @@ export default function OrdersPage() {
       <div className="toolbar">
         <input className="search" placeholder="Search customer, item, email, order #…" value={q} onChange={(e) => setQ(e.target.value)} />
         <select value={store} onChange={(e) => setStore(e.target.value)} aria-label="Store" data-testid="order-store">
-          <option value="">All stores</option><option value="square">Square</option><option value="ebay">eBay</option>
+          <option value="">All stores</option><option value="square">Square</option><option value="ebay">eBay</option><option value="tiktok_shop">TikTok Shop</option>
         </select>
         <select value={state} onChange={(e) => setState(e.target.value)}>
           <option value="">All statuses</option><option value="OPEN">Open</option><option value="COMPLETED">Completed</option><option value="CANCELED">Canceled</option>
@@ -98,7 +98,7 @@ export default function OrdersPage() {
             </Empty>
           ) : (
             <Empty title="No orders yet">
-              Orders appear here after you connect Square or eBay on the <Link to="/integrations">Integrations</Link> page and it syncs.
+              Orders appear here after you connect Square, eBay or TikTok Shop on the <Link to="/integrations">Integrations</Link> page and it syncs.
             </Empty>
           )
         ) : (
@@ -160,6 +160,13 @@ function OrderDrawer({ id, onClose }: { id: number; onClose: () => void }) {
   useEffect(() => { api.get<OrderDetail>(`/orders/${id}`).then(setO).catch(toastError); }, [id]);
   const raw = o?.raw ?? {};
 
+  if (o?.source === "tiktok_shop") {
+    return (
+      <Drawer title={<>TikTok Shop order #{o.reference} <StateBadge o={o} /></>} onClose={onClose}>
+        <TikTokShopDetail o={o} showRaw={showRaw} setShowRaw={setShowRaw} onChanged={() => api.get<OrderDetail>(`/orders/${id}`).then(setO).catch(toastError)} />
+      </Drawer>
+    );
+  }
   if (o?.source === "ebay") {
     return (
       <Drawer title={<>eBay order #{o.reference} <StateBadge o={o} /></>} onClose={onClose}>
@@ -428,5 +435,132 @@ function EbayDetail({ o, showRaw, setShowRaw }: { o: OrderDetail; showRaw: boole
         {showRaw && <pre className="raw-json">{JSON.stringify({ order: raw, shipping_fulfillments: tracking }, null, 2)}</pre>}
       </Section>
     </div>
+  );
+}
+
+const ttMoney = (v: unknown) => (v === undefined || v === null || v === "" ? "" : money(Number(v)));
+const ttAddr = (a?: Json) => (a ? (a.full_address as string) || [a.address_line1, a.address_line2, a.address_detail,
+  ...((a.district_info ?? []) as Json[]).map((d) => d.address_name).reverse(), a.postal_code].filter(Boolean).join(", ") : "");
+const trackLink = (provider: string, tn: string) => {
+  const key = Object.keys(TRACK).find((k) => provider.toUpperCase().replace(/\s/g, "").includes(k));
+  return key ? <a href={`${TRACK[key]}${encodeURIComponent(tn)}`} target="_blank" rel="noreferrer">{tn}</a> : tn;
+};
+
+function TikTokShopDetail({ o, showRaw, setShowRaw, onChanged }: { o: OrderDetail; showRaw: boolean; setShowRaw: (v: boolean) => void; onChanged: () => void }) {
+  const raw = o.raw ?? {};
+  const pay = raw.payment ?? {};
+  const addr = raw.recipient_address ?? {};
+  const lines: Json[] = raw.line_items ?? [];
+  const tracking: Json[] = o.payments ?? [];
+  const sellerShips = raw.shipping_type !== "TIKTOK" && raw.fulfillment_type !== "FULFILLMENT_BY_TIKTOK";
+  const canShip = sellerShips && ["AWAITING_SHIPMENT", "PARTIALLY_SHIPPING"].includes(raw.status);
+  // group identical SKUs (TikTok lists one line per unit)
+  const grouped = Object.values(lines.reduce((acc: Record<string, Json>, li) => {
+    const k = `${li.sku_id ?? li.product_name}-${li.sku_name ?? ""}`;
+    acc[k] = acc[k] ? { ...acc[k], qty: acc[k].qty + 1 } : { ...li, qty: 1 };
+    return acc;
+  }, {}));
+  return (
+    <div className="order-detail">
+      <KV rows={[
+        ["Placed", dateTime(o.ordered_at)], ["Shipped", o.closed_at ? dateTime(o.closed_at) : ""],
+        ["Last updated", dateTime(o.updated_at_ext)], ["Shop", o.location_name], ["Channel", o.channel_name],
+        ["Status", label(raw.status)], ["Ships by", raw.shipping_type === "TIKTOK" ? "TikTok shipping label" : "You (seller shipping)"],
+        ["Delivery", raw.delivery_option_name], ["TikTok order ID", <code key="id">{o.external_id}</code>],
+        ["Pipeline deal", o.deal_id ? <Link key="d" to="/pipeline">View in Pipeline</Link> : ""],
+      ]} />
+      {o.receipt_url && <a className="btn btn-sm" href={o.receipt_url} target="_blank" rel="noreferrer">Open in TikTok Seller Center ↗</a>}
+
+      <Section title="Buyer">
+        <KV rows={[["Name", o.customer_name], ["Email", o.customer_email ? `${o.customer_email} (TikTok relay address)` : ""],
+          ["Phone", o.customer_phone], ["Buyer note", raw.buyer_message],
+          ["Contact", o.contact_id ? <Link key="c" to={`/contacts?open=${o.contact_id}`}>Open contact</Link> : ""]]} />
+      </Section>
+
+      <Section title={`Items (${num(lines.length)})`}>
+        <table className="table compact">
+          <thead><tr><th>Item</th><th className="num">Qty</th><th className="num">Price</th><th className="num">Total</th></tr></thead>
+          <tbody>
+            {grouped.map((li, i) => (
+              <tr key={li.id ?? i}>
+                <td>
+                  <div className="row-tight">
+                    {li.sku_image && <img className="item-thumb" src={li.sku_image} alt="" />}
+                    <div>
+                      <strong>{li.product_name}</strong>
+                      <div className="muted small">{[li.sku_name && li.sku_name !== "Default" ? li.sku_name : "", li.seller_sku ? `SKU ${li.seller_sku}` : "", label(li.display_status)].filter(Boolean).join(" · ")}</div>
+                    </div>
+                  </div>
+                </td>
+                <td className="num">{li.qty}</td>
+                <td className="num">{ttMoney(li.sale_price)}</td>
+                <td className="num">{li.sale_price !== undefined ? money(Number(li.sale_price) * li.qty) : ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Section>
+
+      <Section title="Payment">
+        <KV rows={[["Products", ttMoney(pay.original_total_product_price ?? pay.sub_total)],
+          ["Seller discount", pay.seller_discount && Number(pay.seller_discount) ? `−${ttMoney(pay.seller_discount)}` : ""],
+          ["TikTok discount", pay.platform_discount && Number(pay.platform_discount) ? `−${ttMoney(pay.platform_discount)} (TikTok pays this)` : ""],
+          ["Shipping", ttMoney(pay.shipping_fee)], ["Tax", ttMoney(pay.tax)],
+          ["Buyer paid", <strong key="t">{ttMoney(pay.total_amount)}</strong>], ["Method", raw.payment_method_name],
+          ["Paid", raw.paid_time ? dateTime(new Date(Number(raw.paid_time) * 1000).toISOString()) : ""]]} />
+        <p className="muted small">TikTok fees and payouts are in Seller Center → Finance.</p>
+      </Section>
+
+      <Section title="Shipping">
+        <KV rows={[["Ship to", addr.name], ["Address", ttAddr(addr)], ["Phone", addr.phone_number]]} />
+        {tracking.length > 0 && (
+          <KV rows={tracking.map((t, i): [string, ReactNode] => [`Package ${i + 1}${t.provider ? ` (${t.provider})` : ""}`, trackLink(String(t.provider ?? ""), String(t.tracking_number))])} />
+        )}
+        {canShip ? <MarkShipped o={o} onDone={onChanged} />
+          : sellerShips ? null : <p className="muted small">TikTok ships this order with its own label; print it in Seller Center.</p>}
+      </Section>
+
+      <Section title="Everything TikTok Shop sent">
+        <button className="btn btn-sm" onClick={() => setShowRaw(!showRaw)}>{showRaw ? "Hide" : "Show"} full order data</button>
+        {showRaw && <pre className="raw-json">{JSON.stringify(raw, null, 2)}</pre>}
+      </Section>
+    </div>
+  );
+}
+
+function MarkShipped({ o, onDone }: { o: OrderDetail; onDone: () => void }) {
+  const [providers, setProviders] = useState<{ id: string; name: string }[] | null>(null);
+  const [provider, setProvider] = useState("");
+  const [tracking, setTracking] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const push = useToasts((s) => s.push);
+  useEffect(() => {
+    api.get<{ id: string; name: string }[]>(`/orders/${o.id}/shipping-providers`).then(setProviders)
+      .catch((e) => { setProviders([]); setErr(e instanceof Error ? e.message : String(e)); });
+  }, [o.id]);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const r = await api.post<{ warning?: string }>(`/orders/${o.id}/ship`, { tracking_number: tracking.trim(), shipping_provider_id: provider });
+      push(r.warning || "Marked as shipped in TikTok Shop.", "success");
+      onDone();
+    } catch (e2) { toastError(e2); } finally { setBusy(false); }
+  };
+  return (
+    <form className="ship-form" onSubmit={submit} data-testid="tts-ship">
+      <h4>Mark as shipped</h4>
+      {err && <div className="warn-box small">{err}</div>}
+      <div className="row">
+        <select value={provider} onChange={(e) => setProvider(e.target.value)} required aria-label="Carrier">
+          <option value="">{providers === null ? "Loading carriers…" : "Carrier…"}</option>
+          {(providers ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <input value={tracking} onChange={(e) => setTracking(e.target.value)} placeholder="Tracking number" required minLength={3} />
+        <button className="btn btn-primary btn-sm" disabled={busy || !provider || tracking.trim().length < 3}>{busy ? "Sending…" : "Mark shipped"}</button>
+      </div>
+      <p className="muted small">Sends the tracking number to TikTok Shop and updates the buyer. Ship within your handling time to avoid late-shipment marks.</p>
+    </form>
   );
 }

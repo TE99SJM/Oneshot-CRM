@@ -5,9 +5,9 @@ import { Badge, Empty, Field, Modal } from "../components/ui";
 import { dateTime, fromLocalInput, toLocalInput } from "../format";
 import { useCrm } from "../store/crmStore";
 import { toastError, useToasts } from "../store/toastStore";
-import type { MediaItem, PublishJob, PublishPlatform, PublishTarget, PublishTargetOption } from "../types";
+import type { MediaItem, PublishJob, PublishPlatform, PublishTarget, PublishTargetOption, TikTokCreatorInfo } from "../types";
 
-const PLATFORM_LABEL: Record<PublishPlatform, string> = { facebook: "Facebook", instagram: "Instagram", youtube: "YouTube" };
+const PLATFORM_LABEL: Record<PublishPlatform, string> = { facebook: "Facebook", instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube" };
 const TARGET_TONE: Record<PublishTarget["status"], string> = {
   pending: "blue", posting: "amber", processing: "green", posted: "green", failed: "red", canceled: "neutral",
 };
@@ -20,9 +20,18 @@ const JOB_TONE: Record<PublishJob["status"], string> = {
 const JOB_LABEL: Record<PublishJob["status"], string> = {
   scheduled: "Scheduled", posting: "Posting…", done: "Posted", partial: "Partly posted", failed: "Failed", canceled: "Canceled",
 };
-const LIMITS: Record<PublishPlatform, number> = { facebook: 63206, instagram: 2200, youtube: 5000 };
+const LIMITS: Record<PublishPlatform, number> = { facebook: 63206, instagram: 2200, tiktok: 2200, youtube: 5000 };
 
-interface Pending { key: string; file: File; preview: string; progress: number; media?: MediaItem; error?: string; vertical?: boolean }
+interface Pending { key: string; file: File; preview: string; progress: number; media?: MediaItem; error?: string; vertical?: boolean; duration?: number }
+export interface TtOptions {
+  mode: "direct" | "draft"; privacy_level: string; allow_comment: boolean; allow_duet: boolean; allow_stitch: boolean;
+  disclose: boolean; brand_organic: boolean; brand_content: boolean; consent: boolean; is_aigc: boolean;
+}
+const TT_DEFAULT: TtOptions = { mode: "direct", privacy_level: "", allow_comment: false, allow_duet: false, allow_stitch: false,
+  disclose: false, brand_organic: false, brand_content: false, consent: false, is_aigc: false };
+const TT_PRIVACY: Record<string, string> = {
+  PUBLIC_TO_EVERYONE: "Everyone", MUTUAL_FOLLOW_FRIENDS: "Friends", FOLLOWER_OF_CREATOR: "Followers", SELF_ONLY: "Only me",
+};
 interface YtOptions { privacy: string; made_for_kids: boolean; tags: string; notify: boolean }
 
 const size = (n: number) => (n > 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n > 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.ceil(n / 1e3)} KB`);
@@ -42,6 +51,9 @@ export default function ComposePage() {
   const [yt, setYt] = useState<YtOptions>({ privacy: "public", made_for_kids: false, tags: "", notify: true });
   const [fbReel, setFbReel] = useState(false);
   const [igFeed, setIgFeed] = useState(true);
+  const [tt, setTt] = useState<TtOptions>(TT_DEFAULT);
+  const [ttInfo, setTtInfo] = useState<TikTokCreatorInfo | null>(null);
+  const [ttInfoError, setTtInfoError] = useState("");
   const [busy, setBusy] = useState(false);
   const [jobs, setJobs] = useState<PublishJob[]>([]);
   const [rescheduling, setRescheduling] = useState<PublishJob | null>(null);
@@ -70,6 +82,13 @@ export default function ComposePage() {
   const videos = files.filter((f) => isVideo(f.file));
   const uploading = files.some((f) => !f.media && !f.error);
   const caption = link && !text.includes(link) ? `${text}\n\n${link}`.trim() : text;
+  const ttTarget = chosen.find((t) => t.platform === "tiktok");
+  useEffect(() => {
+    if (!ttTarget) return;
+    setTtInfo(null); setTtInfoError("");
+    api.get<TikTokCreatorInfo>(`/publish/tiktok/${ttTarget.integration_id}/creator-info`)
+      .then(setTtInfo).catch((e) => setTtInfoError(e instanceof Error ? e.message : String(e)));
+  }, [ttTarget?.integration_id]); // eslint-disable-line react-hooks/exhaustive-deps
   const needsTitle = platforms.has("youtube") || (platforms.has("facebook") && videos.length > 0);
 
   const problems: string[] = [];
@@ -83,6 +102,20 @@ export default function ComposePage() {
   if (platforms.has("youtube") && (videos.length !== 1 || images.length)) problems.push("YouTube needs exactly one video and no photos.");
   if (platforms.has("youtube") && !(title.trim() || text.trim())) problems.push("Give the YouTube video a title.");
   if (platforms.has("youtube") && title.length > 100) problems.push("YouTube titles max out at 100 characters.");
+  if (platforms.has("tiktok")) {
+    if (!files.length) problems.push("TikTok needs a video or photos.");
+    if (videos.length && images.length) problems.push("TikTok: one video, or photos only.");
+    if (images.length > 35) problems.push("TikTok photo posts take up to 35 photos.");
+    if (caption.length > 2200) problems.push("TikTok captions max out at 2,200 characters.");
+    if (tt.mode === "direct") {
+      if (!tt.privacy_level) problems.push("TikTok: choose who can view the post.");
+      if (!tt.consent) problems.push("TikTok: agree to TikTok's Music Usage Confirmation.");
+      if (tt.brand_content && tt.privacy_level === "SELF_ONLY") problems.push("TikTok: branded content can't be “Only me”.");
+      const max = ttInfo?.max_video_post_duration_sec;
+      if (max && videos.some((v) => (v.duration ?? 0) > max)) problems.push(`TikTok: your account can post videos up to ${Math.floor(max / 60)} min ${max % 60} s.`);
+    }
+    if (tt.disclose && !tt.brand_organic && !tt.brand_content) problems.push("TikTok: pick “Your brand”, “Branded content”, or both (or turn disclosure off).");
+  }
   if (when === "later" && !at) problems.push("Pick a date and time, or choose Post now.");
   if (files.some((f) => f.error)) problems.push("Remove the files that failed to upload.");
 
@@ -104,8 +137,8 @@ export default function ComposePage() {
     if (p.media) api.del(`/publish/media/${p.media.id}`).catch(() => undefined);
   };
   const onDrop = (e: DragEvent) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files); };
-  const markVertical = (key: string, w: number, h: number) =>
-    setFiles((cur) => cur.map((f) => (f.key === key ? { ...f, vertical: h > w } : f)));
+  const markVertical = (key: string, w: number, h: number, duration?: number) =>
+    setFiles((cur) => cur.map((f) => (f.key === key ? { ...f, vertical: h > w, duration } : f)));
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -119,13 +152,14 @@ export default function ComposePage() {
           integration_id: t.integration_id,
           options: t.platform === "youtube" ? { ...yt }
             : t.platform === "facebook" ? { as_reel: fbReel && videos.length > 0 }
+            : t.platform === "tiktok" ? { ...tt, disclose: tt.disclose, brand_organic: tt.disclose && tt.brand_organic, brand_content: tt.disclose && tt.brand_content }
             : { share_to_feed: igFeed },
         })),
       };
       const job = await api.post<PublishJob>("/publish", body);
       push(when === "later" ? `Scheduled for ${dateTime(job.scheduled_at)}.` : "Posting now. Results appear below.", "success");
       files.forEach((f) => URL.revokeObjectURL(f.preview));
-      setFiles([]); setText(""); setTitle(""); setLink(""); setAt(""); setWhen("now");
+      setFiles([]); setText(""); setTitle(""); setTt(TT_DEFAULT); setLink(""); setAt(""); setWhen("now");
       await loadJobs();
       loadPosts().catch(() => undefined);
     } catch (err) { toastError(err); } finally { setBusy(false); }
@@ -151,12 +185,12 @@ export default function ComposePage() {
   return (
     <div className="page">
       <header className="page-head">
-        <div><h1>Compose</h1><p className="muted">Write once and post to Facebook, Instagram and YouTube, now or on a schedule.</p></div>
+        <div><h1>Compose</h1><p className="muted">Write once and post to Facebook, Instagram, TikTok and YouTube, now or on a schedule.</p></div>
       </header>
 
       {targets && !targets.length && (
         <div className="callout">
-          No posting accounts yet. Connect Facebook, Instagram or YouTube in <Link to="/integrations">Integrations</Link> first.
+          No posting accounts yet. Connect Facebook, Instagram, TikTok or YouTube in <Link to="/integrations">Integrations</Link> first.
         </div>
       )}
 
@@ -186,7 +220,7 @@ export default function ComposePage() {
               {files.map((f) => (
                 <div key={f.key} className="media-tile">
                   {isVideo(f.file)
-                    ? <video src={f.preview} muted onLoadedMetadata={(e) => markVertical(f.key, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} />
+                    ? <video src={f.preview} muted onLoadedMetadata={(e) => markVertical(f.key, e.currentTarget.videoWidth, e.currentTarget.videoHeight, e.currentTarget.duration)} />
                     : <img src={f.preview} alt={f.file.name} />}
                   <div className="media-meta small">
                     <span className="ellipsis" title={f.file.name}>{f.file.name}</span>
@@ -254,6 +288,8 @@ export default function ComposePage() {
               <label className="row small"><input type="checkbox" checked={igFeed} onChange={(e) => setIgFeed(e.target.checked)} /> Also show it in the main feed</label>
             </section>
           )}
+
+          {platforms.has("tiktok") && <TikTokCard tt={tt} setTt={setTt} info={ttInfo} error={ttInfoError} photos={images.length > 0} />}
 
           <section className="card">
             <h3>When</h3>
@@ -346,5 +382,68 @@ function Reschedule({ job, onClose, onSaved }: { job: PublishJob; onClose: () =>
         <Field label="Post text"><textarea rows={5} value={text} onChange={(e) => setText(e.target.value)} /></Field>
       </form>
     </Modal>
+  );
+}
+
+/** TikTok's required posting options (TikTok's content sharing guidelines say these must be shown before each post). */
+function TikTokCard({ tt, setTt, info, error, photos }: {
+  tt: TtOptions; setTt: (v: TtOptions) => void; info: TikTokCreatorInfo | null; error: string; photos: boolean;
+}) {
+  const set = (patch: Partial<TtOptions>) => setTt({ ...tt, ...patch });
+  const options = info?.privacy_level_options ?? [];
+  const direct = tt.mode === "direct";
+  return (
+    <section className="card" data-testid="tiktok-card">
+      <h3>TikTok{info?.creator_nickname ? <span className="muted small"> · posting as {info.creator_nickname}</span> : null}</h3>
+      {error && <div className="error-box small">{error}</div>}
+      <div className="segmented">
+        <button type="button" className={direct ? "active" : ""} onClick={() => set({ mode: "direct" })}>Post directly</button>
+        <button type="button" className={!direct ? "active" : ""} onClick={() => set({ mode: "draft" })}>Send to TikTok drafts</button>
+      </div>
+      {!direct ? (
+        <p className="muted small">The {photos ? "photos go" : "video goes"} to your TikTok inbox. Open the TikTok app, tap the notification, then add sounds and post from there.</p>
+      ) : (
+        <>
+          <Field label="Who can view this post" hint={options.length === 1 && options[0] === "SELF_ONLY" ? "Until TikTok audits your app it only allows “Only me”." : undefined}>
+            <select value={tt.privacy_level} onChange={(e) => set({ privacy_level: e.target.value })} data-testid="tt-privacy">
+              <option value="" disabled>Choose…</option>
+              {(options.length ? options : Object.keys(TT_PRIVACY)).map((o) => (
+                <option key={o} value={o} disabled={tt.brand_content && o === "SELF_ONLY"}>{TT_PRIVACY[o] ?? o}</option>
+              ))}
+            </select>
+          </Field>
+          <div className="small">Allow viewers to:</div>
+          <label className="check-line small"><input type="checkbox" checked={tt.allow_comment && !info?.comment_disabled} disabled={!!info?.comment_disabled}
+            onChange={(e) => set({ allow_comment: e.target.checked })} /> Comment</label>
+          {!photos && <>
+            <label className="check-line small"><input type="checkbox" checked={tt.allow_duet && !info?.duet_disabled} disabled={!!info?.duet_disabled}
+              onChange={(e) => set({ allow_duet: e.target.checked })} /> Duet</label>
+            <label className="check-line small"><input type="checkbox" checked={tt.allow_stitch && !info?.stitch_disabled} disabled={!!info?.stitch_disabled}
+              onChange={(e) => set({ allow_stitch: e.target.checked })} /> Stitch</label>
+          </>}
+          {(info?.comment_disabled || info?.duet_disabled || info?.stitch_disabled) && <p className="muted small">Greyed-out options are turned off in your TikTok app settings.</p>}
+        </>
+      )}
+      <label className="check-line small"><input type="checkbox" checked={tt.disclose} onChange={(e) => set({ disclose: e.target.checked })} data-testid="tt-disclose" />
+        Disclose commercial content (promoting yourself, a brand, product or service)</label>
+      {tt.disclose && (
+        <div className="indent">
+          <label className="check-line small"><input type="checkbox" checked={tt.brand_organic} onChange={(e) => set({ brand_organic: e.target.checked })} />
+            Your brand (labelled “Promotional content”)</label>
+          <label className="check-line small"><input type="checkbox" checked={tt.brand_content}
+            onChange={(e) => set({ brand_content: e.target.checked, privacy_level: e.target.checked && tt.privacy_level === "SELF_ONLY" ? "" : tt.privacy_level })} />
+            Branded content for a third party (labelled “Paid partnership”)</label>
+          {tt.brand_content && <p className="muted small">Branded content can't be set to “Only me”.</p>}
+        </div>
+      )}
+      <label className="check-line small"><input type="checkbox" checked={tt.is_aigc} onChange={(e) => set({ is_aigc: e.target.checked })} /> AI-generated content</label>
+      {direct && (
+        <label className="check-line small"><input type="checkbox" checked={tt.consent} onChange={(e) => set({ consent: e.target.checked })} data-testid="tt-consent" />
+          <span>By posting, I agree to TikTok's{tt.disclose && tt.brand_content
+            ? <> <a href="https://www.tiktok.com/legal/page/global/bc-policy/en" target="_blank" rel="noreferrer">Branded Content Policy</a> and</> : null}{" "}
+            <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en" target="_blank" rel="noreferrer">Music Usage Confirmation</a>.</span></label>
+      )}
+      {direct && <p className="muted small">After posting, TikTok can take a few minutes to process it before it shows on your profile.</p>}
+    </section>
   );
 }

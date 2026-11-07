@@ -38,10 +38,55 @@ def _back(return_to: str, **params) -> RedirectResponse:
     return RedirectResponse(f"{return_to}/integrations?{urlencode(params)}", status_code=303)
 
 
+def _app_callback(mod, request: Request):
+    """Return from TikTok / TikTok Shop sign-in."""
+    from .oauth_apps import finish_signin
+    q = request.query_params
+    state, key = q.get("state", ""), mod.INFO.key
+    flag = f"{key}_signin"
+    with SessionLocal() as db:
+        candidates, integ = [], None
+        for i in db.scalars(select(Integration).where(Integration.provider == key)).all():
+            try:
+                s = decrypt_secrets(i.secrets)
+            except ValueError:
+                continue
+            if s.get("oauth_state"):
+                candidates.append(i)
+                if state and hmac.compare_digest(s["oauth_state"], state):
+                    integ = i
+                    break
+        if integ is None and not state and len(candidates) == 1:
+            integ = candidates[0]              # TikTok Shop links made in Partner Center may drop the state
+        if integ is None:
+            return _page("Sign-in link expired",
+                         f"This sign-in wasn't started from the CRM, or it was already used. In the CRM, open "
+                         f"Integrations → {mod.OAUTH_NAME} → Sign in and try again.", False)
+        return_to = json.loads(integ.config or "{}").get("oauth_return_to", "")
+        if q.get("error"):
+            msg = q.get("error_description") or q.get("error")
+            msg = f"{mod.OAUTH_NAME} sign-in was cancelled." if q.get("error") == "access_denied" else f"{mod.OAUTH_NAME} said: {msg}"
+            return _back(return_to, **{flag: "error", "message": msg}) if return_to else _page("Not connected", msg, False)
+        try:
+            finish_signin(db, integ, q.get("code") or q.get("auth_code") or "")
+        except SyncError as e:
+            log.warning("%s sign-in failed: %s", key, e)
+            return _back(return_to, **{flag: "error", "message": str(e)}) if return_to else _page("Not connected", str(e), False)
+        account = json.loads(integ.config or "{}").get("oauth_account", "")
+        if return_to:
+            return _back(return_to, **{flag: "connected", "account": account})
+        return _page(f"{mod.OAUTH_NAME} connected", f"Signed in{f' as {account}' if account else ''}. You can close this tab.", True)
+
+
 @router.get("/api/oauth/{rest:path}", include_in_schema=False)
 def oauth_public(rest: str, request: Request):
     from .integrations import finish_youtube_signin
-    if not rest.rstrip("/").endswith("youtube/callback"):
+    from ..integrations.registry import OAUTH_APPS
+    path = rest.rstrip("/")
+    for mod in OAUTH_APPS.values():
+        if path.endswith(f"{mod.OAUTH_SLUG}/callback"):
+            return _app_callback(mod, request)
+    if not path.endswith("youtube/callback"):
         return _page("Not found", "Unknown sign-in address.", False)
     q = request.query_params
     state = q.get("state", "")

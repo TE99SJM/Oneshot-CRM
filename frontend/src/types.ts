@@ -98,7 +98,7 @@ export interface EmailDetail extends EmailRow {
 }
 export interface EmailPage { items: EmailRow[]; total: number }
 
-export type PublishPlatform = "facebook" | "instagram" | "youtube";
+export type PublishPlatform = "facebook" | "instagram" | "tiktok" | "youtube";
 export interface PublishTargetOption {
   integration_id: number; platform: PublishPlatform; name: string; enabled: boolean; channel_id: number | null;
   channel_name: string | null; ready: boolean; note: string; account: string; public_media: boolean | null;
@@ -113,4 +113,21 @@ export interface PublishJob {
   id: number; title: string; text: string; link: string; status: "scheduled" | "posting" | "done" | "partial" | "failed" | "canceled";
   scheduled_at: string | null; created_at: string; finished_at: string | null; media_deleted: boolean;
   media: MediaItem[]; targets: PublishTarget[];
+}
+
+export interface ConversationRow {
+  id: number; source: string; integration_id: number | null; external_id: string; contact_id: number | null;
+  title: string; avatar_url: string; last_message: string; last_message_at: string | null; unread: number;
+  can_reply: boolean; reply_note: string;
+}
+export interface ChatMessage { id: number; direction: "in" | "out"; sender_name: string; kind: string; body: string; sent_at: string | null; }
+export interface ConversationDetail extends ConversationRow { messages: ChatMessage[]; }
+export interface OAuthInfo {
+  name: string; signed_in: boolean; account: string; missing_scopes: string; redirect_in_link: boolean;
+  saved: string; suggested: string; callback_path: string;
+}
+export interface TikTokCreatorInfo {
+  creator_nickname?: string; creator_username?: string; creator_avatar_url?: string;
+  privacy_level_options?: string[]; comment_disabled?: boolean; duet_disabled?: boolean; stitch_disabled?: boolean;
+  max_video_post_duration_sec?: number;
 }

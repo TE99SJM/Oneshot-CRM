@@ -296,3 +296,40 @@ class StatSnapshot(Base):
     day: Mapped[date] = mapped_column(Date, index=True)                       # UTC day
     value: Mapped[float] = mapped_column(Float, default=0.0)
     recorded_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class Conversation(Base):
+    """A message thread pulled from a platform (TikTok Shop buyer chat, TikTok direct messages)."""
+    __tablename__ = "conversations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(30), index=True)                # tiktok_shop|tiktok_business
+    integration_id: Mapped[int | None] = mapped_column(ForeignKey("integrations.id", ondelete="CASCADE"), nullable=True)
+    external_id: Mapped[str] = mapped_column(String(200), index=True)
+    contact_id: Mapped[int | None] = mapped_column(ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True)
+    title: Mapped[str] = mapped_column(String(200), default="")                # the other person's name
+    avatar_url: Mapped[str] = mapped_column(String(500), default="")
+    peer_id: Mapped[str] = mapped_column(String(200), default="")              # their id on the platform
+    last_message: Mapped[str] = mapped_column(String(300), default="")
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    unread: Mapped[int] = mapped_column(Integer, default=0)
+    can_reply: Mapped[bool] = mapped_column(Boolean, default=True)
+    reply_note: Mapped[str] = mapped_column(String(300), default="")           # why replying is limited
+    extra: Mapped[str] = mapped_column(Text, default="{}")
+
+    messages: Mapped[list["Message"]] = relationship(back_populates="conversation", cascade="all, delete-orphan",
+                                                     order_by="Message.sent_at")
+
+
+class Message(Base):
+    __tablename__ = "messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
+    external_id: Mapped[str] = mapped_column(String(200), default="", index=True)
+    direction: Mapped[str] = mapped_column(String(4), default="in")          # in|out
+    sender_name: Mapped[str] = mapped_column(String(200), default="")
+    kind: Mapped[str] = mapped_column(String(30), default="TEXT")
+    body: Mapped[str] = mapped_column(Text, default="")
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    raw: Mapped[str] = mapped_column(Text, default="{}")
+
+    conversation: Mapped[Conversation] = relationship(back_populates="messages")

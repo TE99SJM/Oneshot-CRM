@@ -14,8 +14,9 @@ A self-hosted CRM for managing **social media channels, sales channels, sales fu
 | Pipeline | Multiple funnels with custom stages (probability %, open/won/lost); drag-and-drop deal board; dropping a deal in a Won/Lost stage closes it automatically |
 | Contacts | Leads → prospects → customers, source-channel attribution, tags, search/filters, activity timeline (notes, calls, emails, DMs, meetings, tasks), CSV import/export |
 | Content | Monthly content calendar + list view, idea bank, post status (idea/draft/scheduled/published), per-post metrics (views, likes, comments, shares, clicks) |
-| Compose | Write one post and send it to your Facebook Page, Instagram and YouTube at once, now or scheduled; photos, carousels, videos, Reels; per-platform results with links, retry and cancel |
+| Compose | Write one post and send it to your Facebook Page, Instagram, TikTok and YouTube at once, now or scheduled; photos, carousels, videos, Reels; per-platform results with links, retry and cancel |
 | Channels | Social accounts, stores, marketplaces, email lists, ads, referrals, with followers, monthly cost, and computed leads / open deals / won revenue / views |
+| Messages | TikTok Shop buyer chats pulled in on every sync, with replies sent back to the buyer from the CRM |
 | Tasks | Follow-up list with due dates, overdue highlighting, linked contacts |
 | Settings | Change password, load demo data, import/export contacts, link to API docs |
 
@@ -138,7 +139,7 @@ docker compose logs -f crm    # then open http://<CRM_BIND>:8000
 
 ## Orders
 
-The **Orders** tab opens on the last 30 days (pick Last 7/90 days, This year, All time or custom dates to change it) and lists every Square and eBay order (filter by store) with totals for gross sales, refunds, net sales and Square fees. You can search and filter by status, fulfillment type and date, and export to CSV. Click an order to see everything: line items with variations, modifiers and discounts; taxes, service charges and tips; the customer; shipping or pickup recipient, address, carrier and tracking; card brand/last 4, entry method, fees and receipt; refunds and returns; notes; and the complete raw data the store returned. eBay orders also show the buyer's eBay username, ship-to address, tracking numbers (with carrier links), eBay fees, sales tax eBay collected, and what eBay says is due to you.
+The **Orders** tab opens on the last 30 days (pick Last 7/90 days, This year, All time or custom dates to change it) and lists every Square, eBay and TikTok Shop order (filter by store) with totals for gross sales, refunds, net sales and Square fees. You can search and filter by status, fulfillment type and date, and export to CSV. Click an order to see everything: line items with variations, modifiers and discounts; taxes, service charges and tips; the customer; shipping or pickup recipient, address, carrier and tracking; card brand/last 4, entry method, fees and receipt; refunds and returns; notes; and the complete raw data the store returned. eBay orders also show the buyer's eBay username, ship-to address, tracking numbers (with carrier links), eBay fees, sales tax eBay collected, and what eBay says is due to you. TikTok Shop orders show items, buyer, payment, ship-to address and tracking, and seller-shipped orders have a **Mark as shipped** form (pick the carrier, type the tracking number) that sends it to TikTok Shop.
 
 The **Pipeline** also opens on the last 30 days: it shows deals created or closed (won/lost) in the selected range. Pick **All time** to see everything.
 
@@ -150,7 +151,7 @@ The **Pipeline** also opens on the last 30 days: it shows deals created or close
 
 ## Posting (Compose)
 
-The **Compose** tab sends one post to any mix of your **Facebook Page**, **Instagram** and **YouTube** connections.
+The **Compose** tab sends one post to any mix of your **Facebook Page**, **Instagram**, **TikTok** and **YouTube** connections.
 
 1. Write the text, optionally add a link and attach photos or one video (drag and drop works).
 2. Tick where it should go. Accounts that need one more setup step are greyed out with a "Fix" link.
@@ -163,6 +164,7 @@ What each platform takes:
 |---|---|---|
 | Facebook Page | Text, link, 1–20 photos, or one video | Tick "Post the video as a Reel" for vertical clips (3–90 s) |
 | Instagram | 1 photo, a carousel of up to 20 photos, or one video (posted as a Reel) | Needs at least one photo or video. Captions max 2,200 characters; links aren't clickable |
+| TikTok | One video, or up to 35 photos | You must pick who can view it and tick TikTok's Music Usage Confirmation every time (TikTok's rule). Comment/Duet/Stitch start off. "Send to TikTok drafts" puts it in your TikTok inbox to finish in the app. Photos need the public media address (below) verified in the TikTok developer portal |
 | YouTube | Exactly one video | Title (max 100), visibility, "made for kids" answer, tags. Vertical videos under 3 min become Shorts |
 
 ### Permissions to add (one time)
@@ -193,7 +195,7 @@ What each platform takes:
 
 Channels → **Import CSV** reads the columns `Name, Type, Platform, Handle, URL, Followers / subscribers, Monthly cost (USD), Active, Notes` (comma- or tab-separated; Excel/Google Sheets "Download as CSV" works). Type can be the on-screen label ("Website / store") or the short name. A row whose Name matches an existing channel updates it, and blank cells keep what's already there. **Export / template** downloads the same layout.
 
-## Integrations (YouTube, Facebook Page, Instagram, Square, eBay, Gmail, Rumble, Twitch)
+## Integrations (YouTube, Facebook Page, Instagram, TikTok, Square, eBay, TikTok Shop, Gmail, Rumble, Twitch)
 
 Open **Integrations** in the sidebar, click **Connect** on a platform, follow the built-in steps, and paste
 the requested key. The first sync runs right away; after that the CRM syncs on its own schedule
@@ -209,6 +211,26 @@ the requested key. The first sync runs right away; after that the CRM syncs on i
 | Gmail | Gmail address + Google app password (myaccount.google.com/apppasswords, needs 2-Step Verification) | Sent and received mail → **Emails** tab and each contact's page; optionally people you email become contacts. Read-only. |
 | Rumble | Live Stream API URL (rumble.com/account/livestream-api) and/or channel page URL | Followers, subscribers, live streams. Rumble has no public per-video stats API. |
 | Twitch | Channel name + Client ID/Secret from dev.twitch.tv/console | Follower total, live viewers, videos with views |
+
+### Connecting TikTok (views, followers, posting)
+
+1. Make sure the sign-in path is public (same command as YouTube; skip if done):
+   `sudo tailscale funnel --bg --set-path=/api/oauth http://127.0.0.1:3050/api/oauth`
+2. Go to [developers.tiktok.com](https://developers.tiktok.com/apps), log in with your TikTok account, **Manage apps → Connect an app**.
+3. Add the products **Login Kit** and **Content Posting API** (turn on **Direct Post**). Add the scopes `user.info.basic`, `user.info.profile`, `user.info.stats`, `video.list`, `video.publish`, `video.upload`.
+4. In the CRM: Integrations → **Connect TikTok**, paste the **Client key** and **Client secret**, save. The sign-in window opens: paste your `https://<server>.<tailnet>.ts.net` address, click **Save**, and copy the return address it shows (`…/api/oauth/tiktok/callback`) into Login Kit → **Redirect URI** in the TikTok app.
+5. Add your own TikTok account as a test user (Sandbox → Target users) if the app isn't approved yet, then click **Sign in with TikTok**. You come straight back and the first sync runs.
+
+What to expect before TikTok approves your app: sign-in only works for test users, and **posts made through the API can only be private ("Only me")**. TikTok also asks your account to be private for that. After TikTok's app review and Content Posting audit, Everyone/Friends/Followers unlock. Views, likes, comments, shares and followers sync either way.
+
+### Connecting TikTok Shop (orders, buyer chats, shipping)
+
+1. Go to [partner.tiktokshop.com](https://partner.tiktokshop.com/), sign up as a developer and create a **custom (in-house) app** linked to your seller account.
+2. Add the API scopes: Order information, Product basic, Fulfillment basic, Logistics basic, **Customer service**, and Shop authorized information.
+3. In the CRM: Integrations → **Connect TikTok Shop**, paste the **App key**, **App secret** and **Service ID**, pick the region, save. In the sign-in window save your `.ts.net` address and copy the return address (`…/api/oauth/tiktok-shop/callback`) into the app's **Redirect URL** in Partner Center.
+4. Once TikTok approves the app, click **Sign in with TikTok Shop**, choose your shop, and approve. Orders, buyers, the **TikTok Shop Sales** funnel, product counts and buyer chats sync right away.
+
+TikTok Shop buyer chats appear in **Messages**. Regular TikTok direct messages (DMs) are not included: TikTok only opens its Business Messaging API to verified business accounts after a data-security review, which a personal app can't realistically get.
 
 ### Connecting Gmail
 
@@ -294,6 +316,12 @@ Interactive docs: **http://localhost:8000/docs** (Swagger UI). All endpoints exc
 | `POST /api/publish` · `GET /api/publish` · `GET/PATCH/DELETE /api/publish/{id}` | Create (now or `scheduled_at`), list, edit or remove posts |
 | `POST /api/publish/{id}/post-now` · `/retry` · `/cancel` | Post a scheduled item early, retry failed platforms, cancel |
 | `GET /api/integrations/{id}/youtube/authorize` · `POST …/youtube/connect` · `POST …/youtube/disconnect` | YouTube posting sign-in |
+| `GET /api/integrations/{id}/oauth` · `PUT …/oauth/redirect` · `GET …/oauth/authorize` · `POST …/oauth/connect` · `POST …/oauth/sign-out` | TikTok and TikTok Shop sign-in |
+| `GET /api/oauth/tiktok/callback` · `GET /api/oauth/tiktok-shop/callback` | Public (no login): automatic return after TikTok / TikTok Shop sign-in, protected by a one-time `state` |
+| `GET /api/publish/tiktok/{integration_id}/creator-info` | TikTok's live posting options for your account (visibility choices, max length) |
+| `GET /api/messages?q=&unread_only=` · `GET /api/messages/{id}` | Buyer chats and their messages |
+| `POST /api/messages/{id}/reply` · `/refresh` · `/read` | Reply to a buyer, pull the full history, mark read |
+| `GET /api/orders/{id}/shipping-providers` · `POST /api/orders/{id}/ship` | TikTok Shop carriers for an order · mark shipped `{tracking_number, shipping_provider_id}` |
 | `POST /api/demo/seed` | Load demo data into an empty CRM |
 
 Example with curl:
@@ -314,5 +342,5 @@ curl -s localhost:8000/api/dashboard -H "Authorization: Bearer $TOKEN"
 
 ## Not included yet (natural next steps)
 
-- Posting to X, TikTok or Truth Social
+- Posting to X or Truth Social; TikTok direct messages (needs TikTok's Business Messaging approval)
 - Multiple users with roles, email sending, file attachments, Alembic migrations
