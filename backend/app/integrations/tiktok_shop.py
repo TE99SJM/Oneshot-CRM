@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 from sqlalchemy import select
 
 from ..models import Contact, Deal, Order, utcnow
-from .base import FieldSpec, ProviderInfo, SyncContext, SyncError, find_external
+from .base import FAST_INTERVAL, FieldSpec, ProviderInfo, SyncContext, SyncError, find_external
 from .messages_store import from_ts, refresh_summary, upsert_conversation, upsert_message
 from .oauth_apps import require_signed_in, save_tokens
 from .square import _funnel
@@ -58,6 +58,7 @@ INFO = ProviderInfo(
                   help="Leave blank to use your first shop."),
     ],
     docs_url="https://partner.tiktokshop.com/docv2/page/authorization-overview-202407",
+    default_interval=FAST_INTERVAL,
     steps=[
         "Go to partner.tiktokshop.com and sign up as a developer (choose “Seller in-house developer” / custom app "
         "for your own shop). Link it to your TikTok Shop seller account.",

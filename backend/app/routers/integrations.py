@@ -27,7 +27,7 @@ class IntegrationIn(BaseModel):
     channel_id: int | None = None
     values: dict[str, str] = {}          # field key -> value (secret and non-secret)
     enabled: bool = True
-    sync_interval_minutes: int = Field(default=360, ge=0, le=60 * 24 * 7)
+    sync_interval_minutes: int | None = Field(default=None, ge=0, le=60 * 24 * 7)   # None = provider default
 
 
 class IntegrationPatch(BaseModel):
@@ -70,6 +70,13 @@ def providers():
     return provider_meta()
 
 
+@router.get("/scheduler")
+def scheduler_status():
+    """Is automatic syncing alive? Last tick of each lane and what it's syncing right now."""
+    from ..integrations.scheduler import status
+    return status()
+
+
 @router.get("")
 def list_integrations(db: Session = Depends(get_db)):
     return [serialize(i) for i in db.scalars(select(Integration).order_by(Integration.id)).all()]
@@ -86,7 +93,9 @@ def create_integration(data: IntegrationIn, db: Session = Depends(get_db)):
         config["verification_token"] = ebay.new_verification_token()
     integ = Integration(provider=data.provider, name=data.name or PROVIDERS[data.provider].INFO.name,
                         channel_id=data.channel_id, config=json.dumps(config), secrets=encrypt_secrets(secrets),
-                        enabled=data.enabled, sync_interval_minutes=data.sync_interval_minutes)
+                        enabled=data.enabled,
+                        sync_interval_minutes=data.sync_interval_minutes if data.sync_interval_minutes is not None
+                        else PROVIDERS[data.provider].INFO.default_interval)
     db.add(integ)
     db.flush()
     ensure_channel(db, integ)

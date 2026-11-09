@@ -4,10 +4,10 @@ import { AppSignIn, isSignedIn } from "../components/AppSignIn";
 import { api } from "../api/client";
 import { Badge, Empty, Field, Modal } from "../components/ui";
 import { BookmarkLink, rumbleBookmarkCode } from "../components/RumbleBookmark";
-import { dateTime, money, num } from "../format";
+import { dateTime, money, num, parseUtc } from "../format";
 import { useCrm } from "../store/crmStore";
 import { toastError, useToasts } from "../store/toastStore";
-import type { Channel, Integration, Provider } from "../types";
+import type { Channel, Integration, Provider, SchedulerStatus } from "../types";
 
 /** Pre-fill connect-form values from an existing channel record. */
 function prefill(provider: string, ch?: Channel): Record<string, string> {
@@ -25,7 +25,7 @@ function prefill(provider: string, ch?: Channel): Record<string, string> {
 const STATUS_TONE: Record<string, string> = { ok: "green", error: "red", running: "amber", never: "neutral" };
 const STATUS_LABEL: Record<string, string> = { ok: "Synced", error: "Error", running: "Syncing…", never: "Not synced yet" };
 const INTERVALS = [
-  { v: 60, l: "Every hour" }, { v: 180, l: "Every 3 hours" }, { v: 360, l: "Every 6 hours" },
+  { v: 15, l: "Every 15 minutes" }, { v: 30, l: "Every 30 minutes" }, { v: 60, l: "Every hour" }, { v: 180, l: "Every 3 hours" }, { v: 360, l: "Every 6 hours" },
   { v: 720, l: "Every 12 hours" }, { v: 1440, l: "Once a day" }, { v: 0, l: "Manual only" },
 ];
 const RESULT_LABEL: Record<string, string> = {
@@ -63,6 +63,17 @@ export default function IntegrationsPage() {
     setProviders(p); setItems(i);
   }, []);
   useEffect(() => { load().catch(toastError); }, [load]);
+  // Keep "last sync" fresh while the page is open: background syncs happen on the server.
+  const [sched, setSched] = useState<SchedulerStatus | null>(null);
+  useEffect(() => {
+    const tick = () => {
+      api.get<Integration[]>("/integrations").then(setItems).catch(() => undefined);
+      api.get<SchedulerStatus>("/integrations/scheduler").then(setSched).catch(() => undefined);
+    };
+    tick();
+    const t = setInterval(tick, 60000);
+    return () => clearInterval(t);
+  }, []);
 
   // Google's automatic return lands here: /integrations?youtube_posting=connected|error
   useEffect(() => {
@@ -171,6 +182,7 @@ export default function IntegrationsPage() {
 
       <section className="card">
         <h3>Connections</h3>
+        <SchedulerLine s={sched} />
         {items.length === 0 ? <Empty title="Nothing connected yet">Pick a platform above to get started.</Empty> : (
           <div className="integration-list">
             {items.map((i) => {
@@ -189,6 +201,7 @@ export default function IntegrationsPage() {
                     <div className="muted small">
                       {p?.name ?? i.provider} → channel “{i.channel_name ?? "—"}” · last sync {dateTime(i.last_sync_at)} ·{" "}
                       {INTERVALS.find((x) => x.v === i.sync_interval_minutes)?.l ?? `every ${i.sync_interval_minutes} min`}
+                      {i.enabled && i.next_sync_at && <> · next {until(i.next_sync_at)}</>}
                     </div>
                     {s && <div className="small">{s}</div>}
                     {!i.secrets_ok && <div className="error-box small">Saved credentials can't be read (the SECRET_KEY changed). Click Edit and re-enter them.</div>}
@@ -568,7 +581,7 @@ function ConnectForm({ provider, existing, channelId: presetChannel, onClose, on
   const preset = channels.find((c) => c.id === presetChannel);
   const [name, setName] = useState(existing?.name ?? preset?.name ?? provider.name);
   const [channelId, setChannelId] = useState<number | "">(existing?.channel_id ?? preset?.id ?? "");
-  const [interval, setIntervalMin] = useState(existing?.sync_interval_minutes ?? 360);
+  const [interval, setIntervalMin] = useState(existing?.sync_interval_minutes ?? provider.default_interval ?? 360);
   const [enabled, setEnabled] = useState(existing?.enabled ?? true);
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(provider.fields.map((f) => [f.key, f.secret ? "" : existing?.config[f.key] ?? prefill(provider.key, preset)[f.key] ?? f.default])));
@@ -655,5 +668,43 @@ function ConnectForm({ provider, existing, channelId: presetChannel, onClose, on
       </form>
       <p className="muted small">Secrets are encrypted in your CRM's database and never shown again after saving.</p>
     </Modal>
+  );
+}
+
+function until(s: string) {
+  const m = Math.round((parseUtc(s).getTime() - Date.now()) / 60000);
+  if (m <= 1) return "within a minute";
+  if (m < 60) return `in ${m} min`;
+  const h = Math.floor(m / 60), r = m % 60;
+  return `in ${h} h${r ? ` ${r} min` : ""}`;
+}
+
+function ago(s: string | null) {
+  if (!s) return "not yet";
+  const m = Math.round((Date.now() - parseUtc(s).getTime()) / 60000);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`;
+}
+
+/** Shows whether the server's automatic sync is alive, so "it isn't pulling data" is easy to diagnose. */
+function SchedulerLine({ s }: { s: SchedulerStatus | null }) {
+  if (!s) return null;
+  if (!s.enabled) return (
+    <div className="warn-box small" data-testid="sched-off">
+      Automatic sync is turned off on this server (SYNC_SCHEDULER=false in .env). Remove that line and restart to turn it back on.
+    </div>
+  );
+  if (!s.healthy) return (
+    <div className="error-box small" data-testid="sched-stuck">
+      Automatic sync looks stuck
+      {[s.lanes.stats, s.lanes.sales].filter((l) => l.running_name).map((l) => ` — still busy with “${l.running_name}” for ${Math.round((l.running_seconds ?? 0) / 60)} min`).join("")}.
+      Restart the CRM (<code>docker compose restart</code>) and tell me what this box said.
+    </div>
+  );
+  const busy = [s.lanes.stats, s.lanes.sales].filter((l) => l.running_name).map((l) => l.running_name);
+  return (
+    <p className="muted small" data-testid="sched-ok">
+      Automatic sync is on: followers & views every 6 hours, sales & messages every 15 minutes (change per connection with Edit).
+      {" "}Last check {ago(s.lanes.stats.last_tick)}{busy.length ? ` · syncing ${busy.join(", ")} now` : ""}.
+    </p>
   );
 }

@@ -60,12 +60,12 @@ export interface ProviderField {
 }
 export interface Provider {
   key: string; name: string; platform: string; channel_kind: string; summary: string; syncs: string[];
-  fields: ProviderField[]; steps: string[]; docs_url: string;
+  fields: ProviderField[]; steps: string[]; docs_url: string; default_interval: number;
 }
 export interface Integration {
   id: number; provider: string; name: string; channel_id: number | null; channel_name: string | null;
   config: Record<string, string>; saved_secrets: string[]; secrets_ok: boolean; enabled: boolean;
-  sync_interval_minutes: number; last_sync_at: string | null; last_status: "never" | "ok" | "error" | "running";
+  sync_interval_minutes: number; last_sync_at: string | null; next_sync_at: string | null; last_status: "never" | "ok" | "error" | "running";
   last_error: string; last_result: Record<string, unknown> & { warnings?: string[] }; created_at: string;
 }
 
@@ -143,3 +143,6 @@ export interface TikTokCreatorInfo {
   privacy_level_options?: string[]; comment_disabled?: boolean; duet_disabled?: boolean; stitch_disabled?: boolean;
   max_video_post_duration_sec?: number;
 }
+
+export interface SchedulerLane { last_tick: string | null; running_id: number | null; running_name: string; running_seconds: number | null; ok: boolean; }
+export interface SchedulerStatus { enabled: boolean; healthy: boolean; started_at: string | null; lanes: { sales: SchedulerLane; stats: SchedulerLane }; }

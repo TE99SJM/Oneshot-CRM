@@ -16,7 +16,7 @@ from html import unescape
 from sqlalchemy import func, select
 
 from ..models import Contact, Email, utcnow
-from .base import FieldSpec, ProviderInfo, SyncContext, SyncError
+from .base import FAST_INTERVAL, FieldSpec, ProviderInfo, SyncContext, SyncError
 
 HOST = "imap.gmail.com"
 BATCH = 25
@@ -56,6 +56,7 @@ INFO = ProviderInfo(
         "To cut the CRM off later, delete the app password at myaccount.google.com/apppasswords.",
     ],
     docs_url="https://support.google.com/accounts/answer/185833",
+    default_interval=FAST_INTERVAL,
 )
 
 

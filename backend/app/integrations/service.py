@@ -99,6 +99,12 @@ def run_sync(db: Session, integ: Integration) -> Integration:
         lock.release()
 
 
+def _next(integ: Integration) -> str | None:
+    from .scheduler import next_sync_at
+    n = next_sync_at(integ)
+    return n.isoformat() if n else None
+
+
 def serialize(integ: Integration) -> dict:
     try:
         secret_keys = sorted(decrypt_secrets(integ.secrets).keys())
@@ -111,6 +117,7 @@ def serialize(integ: Integration) -> dict:
         "config": json.loads(integ.config or "{}"), "saved_secrets": secret_keys, "secrets_ok": secrets_ok,
         "enabled": integ.enabled, "sync_interval_minutes": integ.sync_interval_minutes,
         "last_sync_at": integ.last_sync_at.isoformat() if integ.last_sync_at else None,
+        "next_sync_at": _next(integ),
         "last_status": integ.last_status, "last_error": integ.last_error,
         "last_result": json.loads(integ.last_result or "{}"), "created_at": integ.created_at.isoformat(),
     }

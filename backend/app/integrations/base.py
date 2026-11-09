@@ -34,6 +34,9 @@ class FieldSpec:
     default: str = ""
 
 
+FAST_INTERVAL = 15   # sales + messages sync every 15 minutes by default
+
+
 @dataclass
 class ProviderInfo:
     key: str
@@ -45,6 +48,7 @@ class ProviderInfo:
     fields: list[FieldSpec]
     steps: list[str]
     docs_url: str
+    default_interval: int = 360   # minutes between automatic syncs (stats: 6 h; sales/messages are faster)
 
 
 @dataclass

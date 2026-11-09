@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 from ..config import settings
 from ..models import Contact, Deal, Order, utcnow
-from .base import FieldSpec, ProviderInfo, SyncContext, SyncError, find_external, parse_dt
+from .base import FAST_INTERVAL, FieldSpec, ProviderInfo, SyncContext, SyncError, find_external, parse_dt
 from .square import _funnel
 
 FUNNEL_NAME = "eBay Sales"
@@ -57,6 +57,7 @@ INFO = ProviderInfo(
         "Part 3: click “Open eBay sign-in”, click Agree, then copy the address of the page you land on and paste it into the CRM.",
     ],
     docs_url="https://developer.ebay.com/develop/guides/sell/get-started-with-ebay-apis",
+    default_interval=FAST_INTERVAL,
 )
 
 

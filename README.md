@@ -199,7 +199,22 @@ Channels → **Import CSV** reads the columns `Name, Type, Platform, Handle, URL
 
 Open **Integrations** in the sidebar, click **Connect** on a platform, follow the built-in steps, and paste
 the requested key. The first sync runs right away; after that the CRM syncs on its own schedule
-(every 6 hours by default, adjustable per connection). Use **Test** to check credentials and **Sync now** to refresh.
+(adjustable per connection with **Edit**). Use **Test** to check credentials and **Sync now** to refresh.
+
+Default schedule:
+
+| What | How often |
+|---|---|
+| Followers, subscribers, views (YouTube, Facebook, Instagram, TikTok, Rumble, Twitch, Google Analytics) | Every 6 hours |
+| Sales (Square, eBay, TikTok Shop orders) and Gmail | Every 15 minutes |
+| TikTok Shop buyer messages | Every 5 minutes |
+
+Sales and stats run in two separate background lanes, so a slow stats sync never holds up sales and vice versa.
+Each connection shows **next in …**, and the top of the Connections list says whether automatic sync is running.
+Results are logged: `docker logs funnelhub-crm 2>&1 | grep auto-sync | tail -20`.
+
+Note: YouTube's public numbers lag. Subscriber counts are rounded to 3 significant figures (1,523 shows as 1,520)
+and the channel's lifetime view total can trail by a day or more. Per-video views update faster.
 
 | Platform | What you paste | What syncs |
 |---|---|---|

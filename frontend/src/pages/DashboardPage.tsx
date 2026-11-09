@@ -28,6 +28,7 @@ export default function DashboardPage() {
     api.get<{ bucket: string; points: SeriesPoint[] }>("/dashboard/series/won_revenue", q).then(setRevenue).catch(() => setRevenue(null));
   };
   useEffect(() => { load(); }, [info.start, info.end]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const t = setInterval(load, 5 * 60000); return () => clearInterval(t); }, [info.start, info.end]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function completeTask(id: number) {
     await api.patch(`/activities/${id}`, { done: true }).catch(toastError);

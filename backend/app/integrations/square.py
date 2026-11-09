@@ -6,7 +6,7 @@ from sqlalchemy import select
 import json
 
 from ..models import Contact, Deal, Funnel, FunnelStage, Order, utcnow
-from .base import FieldSpec, ProviderInfo, SyncContext, SyncError, check_response, find_external, parse_dt
+from .base import FAST_INTERVAL, FieldSpec, ProviderInfo, SyncContext, SyncError, check_response, find_external, parse_dt
 
 SQUARE_VERSION = "2026-09-16"
 FUNNEL_NAME = "Square Sales"
@@ -32,6 +32,7 @@ INFO = ProviderInfo(
         "Paste it here and leave Environment on production.",
     ],
     docs_url="https://developer.squareup.com/docs/build-basics/access-tokens",
+    default_interval=FAST_INTERVAL,
 )
 
 

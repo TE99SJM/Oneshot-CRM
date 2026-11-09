@@ -4,6 +4,7 @@ Dev:   uvicorn app.main:app --reload            (frontend served by Vite on :517
 Prod:  uvicorn app.main:app --host 0.0.0.0     (serves the built frontend from frontend/dist)
 """
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -20,8 +21,14 @@ from .routers import (activities, auth, channels, contacts, dashboard, deals, eb
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    logging.getLogger("oneshot").setLevel(logging.INFO)     # sync results show in `docker logs funnelhub-crm`
+    if not logging.getLogger("oneshot").handlers:
+        h = logging.StreamHandler()
+        h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        logging.getLogger("oneshot").addHandler(h)
     init_db()
     _reset_stuck_syncs()
+    _apply_interval_defaults()
     from .publishing.runner import reset_interrupted
     reset_interrupted()
     tasks = []
@@ -32,6 +39,29 @@ async def lifespan(_: FastAPI):
     yield
     for task in tasks:
         task.cancel()
+
+
+def _apply_interval_defaults() -> None:
+    """One-time: sales + email connections still on the old 6-hour default move to every 15 minutes.
+    Anything the user picked themselves is left alone (and this never runs twice for a connection)."""
+    import json
+
+    from sqlalchemy import select
+
+    from .database import SessionLocal
+    from .integrations.registry import PROVIDERS
+    from .models import Integration
+    with SessionLocal() as db:
+        for integ in db.scalars(select(Integration)).all():
+            cfg = json.loads(integ.config or "{}")
+            if cfg.get("interval_defaults_v2") or integ.provider not in PROVIDERS:
+                continue
+            default = PROVIDERS[integ.provider].INFO.default_interval
+            if integ.sync_interval_minutes == 360 and default != 360:
+                integ.sync_interval_minutes = default
+            cfg["interval_defaults_v2"] = True
+            integ.config = json.dumps(cfg)
+        db.commit()
 
 
 def _reset_stuck_syncs() -> None:
