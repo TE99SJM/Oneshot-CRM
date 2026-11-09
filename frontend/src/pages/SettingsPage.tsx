@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, useState } from "react";
 import { api } from "../api/client";
 import { Field } from "../components/ui";
+import OrderAlerts from "../components/OrderAlerts";
 import { useAuth } from "../store/authStore";
 import { useCrm } from "../store/crmStore";
 import { toastError, useToasts } from "../store/toastStore";
@@ -32,6 +33,7 @@ export default function SettingsPage() {
   return (
     <div className="page">
       <header className="page-head"><div><h1>Settings</h1><p className="muted">Signed in as {user?.email}</p></div></header>
+      <OrderAlerts />
       <section className="grid-2">
         <form className="card" onSubmit={changePassword}>
           <h3>Change password</h3>

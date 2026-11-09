@@ -76,6 +76,9 @@ def run_sync(db: Session, integ: Integration) -> Integration:
         integ.last_status = "running"
         db.commit()
         started = utcnow()
+        had_synced = integ.last_sync_at is not None     # the very first sync imports history: no alerts
+        from .. import notifications
+        before_id = notifications.max_order_id(db)
         try:
             with base.make_client() as client:
                 ctx = _context(db, integ, client)
@@ -87,6 +90,12 @@ def run_sync(db: Session, integ: Integration) -> Integration:
             integ.last_result = json.dumps({**ctx.stats, "warnings": ctx.warnings,
                                             "seconds": round((utcnow() - started).total_seconds(), 1)})
             db.commit()
+            if had_synced:
+                try:
+                    notifications.order_alerts(db, before_id, integ.channel_id)
+                except Exception:  # an alert problem must never mark the sync as failed
+                    notifications.log.exception("order alerts failed")
+                    db.rollback()
         except Exception as e:
             db.rollback()
             integ = db.get(Integration, integ.id)

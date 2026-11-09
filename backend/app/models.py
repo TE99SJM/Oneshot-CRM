@@ -333,3 +333,13 @@ class Message(Base):
     raw: Mapped[str] = mapped_column(Text, default="{}")
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+
+
+class NotifySettings(Base):
+    """Order alerts to your phone (one row). ``secrets`` is Fernet-encrypted JSON (tokens, app passwords)."""
+    __tablename__ = "notify_settings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    config: Mapped[str] = mapped_column(Text, default="{}")
+    secrets: Mapped[str] = mapped_column(Text, default="")
+    history: Mapped[str] = mapped_column(Text, default="[]")       # last 25 alerts and what happened
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

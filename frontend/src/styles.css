@@ -365,7 +365,33 @@ textarea { resize: vertical; }
 .nav-link .pill-count { margin-left: 6px; }
 html { -webkit-text-size-adjust: 100%; }
 
+/* Order alerts (Settings) */
+.alerts-card { margin-bottom: 16px; }
+.alerts-card h4 { margin: 18px 0 8px; }
+.row-between.wrap { flex-wrap: wrap; }
+.alert-way { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 12px 0; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.alert-way.on { border-color: var(--primary); box-shadow: inset 4px 0 0 var(--primary); }
+.alert-way .grid-2 { width: 100%; }
+.alert-way p, .alerts-card p { margin: 0; }
+.big-check { font-size: 15px; }
+.big-check input { width: 20px; height: 20px; flex: none; }
+.steps-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.topic-box { display: flex; gap: 8px; align-items: center; background: var(--surface-2); border: 1px dashed var(--border); border-radius: 8px; padding: 8px 10px; max-width: 100%; }
+.topic-box code { font-size: 16px; font-weight: 700; word-break: break-all; user-select: all; }
+.alert-history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.alert-history li { display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.error-text { color: var(--red); }
+.alerts-card .badge { text-transform: none; }
+.store-checks { gap: 16px; } .store-checks .check { white-space: nowrap; }
+.alerts-note { margin: 12px 0 !important; }
+
 @media (max-width: 760px) {
+  .alert-way { padding: 14px; border-radius: 16px; }
+  .big-check { font-size: 18px; font-weight: 700; align-items: flex-start; }
+  .big-check input { width: 28px; height: 28px; }
+  .topic-box { width: 100%; justify-content: space-between; }
+  .topic-box code { font-size: 18px; }
+  .alert-way > .btn, .alerts-card > .row .btn { width: 100%; justify-content: center; }
   :root { font-size: 16px; --radius: 16px; --tabbar-h: 68px; }
   body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; background: var(--bg); }
   .mobile-only { display: revert; }

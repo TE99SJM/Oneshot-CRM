@@ -168,6 +168,20 @@ The **Orders** tab opens on the last 30 days (pick Last 7/90 days, This year, Al
 
 The **Pipeline** also opens on the last 30 days: it shows deals created or closed (won/lost) in the selected range. Pick **All time** to see everything.
 
+## Order alerts to your phone
+
+**Settings → Order alerts to my phone.** When a sync finds a new Square, eBay or TikTok Shop order, the CRM alerts you. Sales sync every 15 minutes, so alerts arrive within about 15 minutes of the sale. Turn on any mix of:
+
+| Way | Cost / setup | Notes |
+|---|---|---|
+| **Phone push (ntfy)**, recommended | Free, no account, no API key | Install the free **ntfy** app ([iPhone](https://apps.apple.com/us/app/ntfy/id1625396347), [Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy)), tap **+**, type the topic name shown in Settings, then **Send test push**. Tapping the alert opens Orders. |
+| **Real SMS (Twilio)** | Paid Twilio account, toll-free number, free toll-free verification (about 3-5 business days) | US carriers block texts from unverified numbers (Twilio error 30032). Enter Account SID, Auth Token, your Twilio number and your phone. |
+| **Text through email (Gmail)** | Free; Gmail + app password (or reuses your Gmail connection) | Carrier email-to-text: AT&T/Cricket shut down Jun 2025, T-Mobile late 2024. Verizon (`vtext.com`) still delivers, though not always, until 31 Mar 2027. Google Fi and US Cellular still work. Or send to any email. |
+
+Rules: the first sync of a new store connection (the history import) never alerts. Orders older than 3 days, and canceled or draft orders, don't alert. More than 3 new orders at once sends one summary. You can set a minimum order total and choose which stores alert. **Recent alerts** shows what was sent and any error. Logs: `docker logs funnelhub-crm 2>&1 | grep alerts`.
+
+The ntfy topic name works like a password, so keep it private. To use your own ntfy server, change it under "Show advanced push settings".
+
 ## Dashboard charts
 
 - **Pick the period** at the top right of the Dashboard: Last 30 days (default), Last 60 days, Last 90 days, Year to date, Full year (choose the year), or All time. The banner under the title always says which dates are shown. "Open pipeline" and "Audience" are always the number right now, and their cards say so.
