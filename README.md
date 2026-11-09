@@ -137,6 +137,31 @@ docker compose logs -f crm    # then open http://<CRM_BIND>:8000
 - The `env_file … required: false` syntax needs Docker Compose v2.24+. On older versions, change it to `env_file: .env` and make sure `.env` exists.
 - Put it behind HTTPS (Caddy, Nginx Proxy Manager, Cloudflare Tunnel, Tailscale) before exposing it to the internet. The API requires login for everything except `/api/health` and `/api/auth/status|setup|login`; `/api/auth/setup` only works while no account exists.
 
+## Use it on your phone (works like an app)
+
+On a phone the CRM switches to an app layout: a title bar at the top, a tab bar at the bottom
+(**Home, Orders, Messages, Post, More**), big bold text, large touch buttons and drop-downs, tables shown as
+cards, and pop-ups that open full screen. **More** lists every other page. Messages works like a texting app:
+tap a chat to open it full screen, then tap **‹ Chats** to go back.
+
+To put it on your home screen with its own icon:
+
+1. Install the **Tailscale** app on the phone and sign in with the same account as the server.
+2. Open the CRM address in the phone's browser, e.g. `http://100.121.179.33:3050`, and sign in.
+3. **iPhone (Safari):** tap Share (square with an arrow) → **Add to Home Screen** → Add.
+   **Android (Chrome):** tap ⋮ → **Add to Home screen** (or **Install app**) → Install.
+4. Open it from the new **FunnelHub** icon. On iPhone it opens full screen with no browser bars. Sign in once inside the app.
+
+Optional, for full-screen mode on Android too: Android only opens home-screen apps full screen from an `https://`
+address. Tailscale can give you one that only your own devices can reach (it doesn't touch the public Funnel):
+
+```bash
+sudo tailscale serve --bg --https=8443 http://127.0.0.1:3050
+```
+
+Then use `https://<your-server>.<tailnet>.ts.net:8443` (run `tailscale serve status` to see the exact address)
+in step 2. Turn it off with `sudo tailscale serve --https=8443 off`.
+
 ## Orders
 
 The **Orders** tab opens on the last 30 days (pick Last 7/90 days, This year, All time or custom dates to change it) and lists every Square, eBay and TikTok Shop order (filter by store) with totals for gross sales, refunds, net sales and Square fees. You can search and filter by status, fulfillment type and date, and export to CSV. Click an order to see everything: line items with variations, modifiers and discounts; taxes, service charges and tips; the customer; shipping or pickup recipient, address, carrier and tracking; card brand/last 4, entry method, fees and receipt; refunds and returns; notes; and the complete raw data the store returned. eBay orders also show the buyer's eBay username, ship-to address, tracking numbers (with carrier links), eBay fees, sales tax eBay collected, and what eBay says is due to you. TikTok Shop orders show items, buyer, payment, ship-to address and tracking, and seller-shipped orders have a **Mark as shipped** form (pick the carrier, type the tracking number) that sends it to TikTok Shop.

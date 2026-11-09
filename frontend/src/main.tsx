@@ -9,3 +9,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <BrowserRouter><App /></BrowserRouter>
   </React.StrictMode>,
 );
+
+// Install-as-app support (phones). Service workers only run on https or localhost.
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => undefined));
+}

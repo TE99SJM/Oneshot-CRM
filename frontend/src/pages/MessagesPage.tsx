@@ -27,7 +27,7 @@ export default function MessagesPage() {
   useEffect(() => { if (rows && openId === null && rows.length && window.innerWidth > 900) setOpenId(rows[0].id); }, [rows, openId]);
 
   return (
-    <div className="page">
+    <div className={`page${openId ? " chat-open" : ""}`}>
       <div className="page-head">
         <div>
           <h1>Messages</h1>
@@ -45,7 +45,7 @@ export default function MessagesPage() {
           Connect TikTok Shop on the <Link to="/integrations">Integrations</Link> page and click Sync. Buyer chats show up here.
         </Empty>
       ) : (
-        <div className="inbox">
+        <div className={`inbox${openId ? " thread-open" : ""}`}>
           <div className="card inbox-list" data-testid="conv-list">
             {rows.map((c) => (
               <button key={c.id} className={`inbox-row${c.id === openId ? " active" : ""}${c.unread ? " unread" : ""}`} onClick={() => setOpenId(c.id)}>
@@ -61,14 +61,14 @@ export default function MessagesPage() {
               </button>
             ))}
           </div>
-          {openId ? <Thread key={openId} id={openId} onChanged={load} /> : <div className="card inbox-thread muted center">Pick a chat</div>}
+          {openId ? <Thread key={openId} id={openId} onChanged={load} onBack={() => setOpenId(null)} /> : <div className="card inbox-thread muted center">Pick a chat</div>}
         </div>
       )}
     </div>
   );
 }
 
-function Thread({ id, onChanged }: { id: number; onChanged: () => void }) {
+function Thread({ id, onChanged, onBack }: { id: number; onChanged: () => void; onBack: () => void }) {
   const [c, setC] = useState<ConversationDetail | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -100,6 +100,7 @@ function Thread({ id, onChanged }: { id: number; onChanged: () => void }) {
   return (
     <div className="card inbox-thread" data-testid="thread">
       <div className="row between thread-head">
+        <button className="back-btn mobile-only" onClick={onBack} data-testid="back-to-chats">‹ Chats</button>
         <div>
           <strong>{c.title}</strong>
           <div className="muted small">{SOURCE_LABEL[c.source] ?? c.source}{c.contact_id ? <> · <Link to={`/contacts?open=${c.contact_id}`}>Open contact</Link></> : null}</div>

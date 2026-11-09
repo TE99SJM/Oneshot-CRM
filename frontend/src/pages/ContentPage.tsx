@@ -59,8 +59,8 @@ export default function ContentPage() {
           <option value="">All statuses</option>{STATUSES.map((s) => <option key={s}>{s}</option>)}
         </select>
         {view === "calendar" && (
-          <div className="row" style={{ marginLeft: "auto" }}>
-            <button className="btn btn-sm" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>←</button>
+          <div className="row month-nav" style={{ marginLeft: "auto" }}>
+            <button className="btn btn-sm" aria-label="Previous month" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>←</button>
             <strong style={{ minWidth: 140, textAlign: "center" }}>{month.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</strong>
             <button className="btn btn-sm" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>→</button>
           </div>

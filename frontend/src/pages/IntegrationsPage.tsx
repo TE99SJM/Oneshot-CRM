@@ -180,7 +180,7 @@ export default function IntegrationsPage() {
         })}
       </section>
 
-      <section className="card">
+      <section className="card connections-card">
         <h3>Connections</h3>
         <SchedulerLine s={sched} />
         {items.length === 0 ? <Empty title="Nothing connected yet">Pick a platform above to get started.</Empty> : (

@@ -5,6 +5,7 @@ Prod:  uvicorn app.main:app --host 0.0.0.0     (serves the built frontend from f
 """
 import asyncio
 import logging
+import mimetypes
 import os
 from contextlib import asynccontextmanager
 
@@ -85,6 +86,8 @@ app.add_middleware(
 for r in (system, auth, dashboard, site_visitors, channels, contacts, funnels, deals, posts, activities, oauth_apps, integrations, messages, orders, ebay_public, oauth_public, emails, publish):
     app.include_router(r.router)
 app.include_router(publish.public_router)
+
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 # Serve the compiled React app (if it has been built) as a single-page application.
 dist = settings.frontend_dist
