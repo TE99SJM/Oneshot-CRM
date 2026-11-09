@@ -182,6 +182,42 @@ Rules: the first sync of a new store connection (the history import) never alert
 
 The ntfy topic name works like a password, so keep it private. To use your own ntfy server, change it under "Show advanced push settings".
 
+## Channel data (pick what you see)
+
+Every sync saves **all the numbers each platform's API gives**, and the CRM also works out numbers from what it
+has synced (posts, orders, contacts, deals, emails). On **Channels**, each card has **Choose data**: tick the
+numbers you want on that card (Select all / None / Reset to defaults, search box, grouped by section). Each number
+shows its time window (right now, last 28 days, last 30 days, the period you picked...) and whether it came from the
+platform or from the CRM. Followers and other "right now" numbers show how much they changed in the picked period
+once the CRM has a daily history from before it.
+
+The **Dashboard → Combined by type** section adds up the ticked numbers across channels of the same **type**:
+Social media (type Social), Sales channels (Marketplace, Website / store, Direct), Email, Paid ads and Other.
+Change a channel's type with its Edit form. Click a tile to see the per-channel breakdown. Rates and averages are
+averaged instead of added.
+
+| Platform | What's pulled (besides posts / orders the CRM already reads) |
+|---|---|
+| YouTube | subscribers, lifetime views, video count; **YouTube Analytics (last 28 days)**: views, minutes watched, average view duration and %, subscribers gained/lost, likes, dislikes, comments, shares, playlist adds; lifetime watch hours; revenue, CPM and ad impressions if the channel is monetized |
+| Facebook Page | followers, likes, people talking about it, check-ins, reviews, star rating; Page Insights (28 days): content views, viewers, impressions, engagements, Page-action clicks, profile views, video views, follows/unfollows, reactions |
+| Instagram | followers, following, posts; insights (28 days): views, reach, accounts engaged, interactions, likes, comments, shares, saves, replies, reposts, link taps, follows |
+| TikTok | followers, following, total likes received, public video count |
+| Twitch | followers, live now / viewers / minutes live, saved videos and their views and hours, clips and clip views |
+| Rumble | followers, paid subscribers, live streams now, live viewers, live likes/dislikes, recent rants |
+| Square | customers in the directory, locations, catalog items and variations |
+| eBay | active / sold / unsold listings; **traffic (30 days)**: impressions (total / search / store), listing views by source, transactions, click-through and conversion rate |
+| TikTok Shop | products, products live |
+| Google Analytics | visitors, visits, page views, new / active visitors, engaged visits, engagement and bounce rate, average visit length, pages per visit, events, key events, purchases, revenue, add-to-carts, checkouts |
+| Every channel (CRM) | posts, views, likes, comments, shares, engagement rate, orders, gross / net sales, refunds, fees, tax, tips, discounts, average order, items sold, buyers, repeat buyers, canceled / open orders, leads, won revenue, open pipeline, emails in/out/unread |
+
+**One-time re-sign-ins to unlock the new numbers**
+
+- **YouTube Analytics:** Integrations → YouTube → **Set up posting** again (adds the two read-only analytics permissions). Without it you still get subscribers / views / videos.
+- **eBay traffic:** Integrations → eBay → **Sign in with eBay** again (adds `sell.analytics.readonly`). Orders keep syncing either way.
+- **Facebook Page Insights** need a Page token with `read_insights`; **Instagram insights** need `instagram_manage_insights`. Missing permissions only show a warning on the sync; everything else still syncs.
+
+Platforms retire metrics now and then; anything a platform stops returning is simply skipped.
+
 ## Dashboard charts
 
 - **Pick the period** at the top right of the Dashboard: Last 30 days (default), Last 60 days, Last 90 days, Year to date, Full year (choose the year), or All time. The banner under the title always says which dates are shown. "Open pipeline" and "Audience" are always the number right now, and their cards say so.
@@ -362,6 +398,9 @@ All variables are optional; see `.env.example`.
 Tables are created automatically on startup, and new columns from upgrades are added automatically (`backend/app/migrate.py`).
 
 ## REST API
+
+Channel data: `GET /api/metrics/channels?start&end&tz_offset`, `GET /api/metrics/channels/{id}`,
+`PUT /api/metrics/channels/{id}/display` (`{"keys": [...]}` or `{"reset": true}`), `GET /api/metrics/combined`.
 
 Interactive docs: **http://localhost:8000/docs** (Swagger UI). All endpoints except auth/health need `Authorization: Bearer <token>`.
 

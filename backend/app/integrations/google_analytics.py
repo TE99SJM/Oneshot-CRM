@@ -187,3 +187,62 @@ def sync(ctx: SyncContext) -> None:
         raise SyncError(result["error"])
     ctx.stats["site_visitors_30d"] = result["visitors"]
     ctx.warnings.extend(result["warnings"])
+    ctx.metric("visitors", result["visitors"], "Site visitors", "num", "Traffic", "30d")
+    ctx.metric("visits", result["visits"], "Visits (sessions)", "num", "Traffic", "30d")
+    ctx.metric("page_views", result["page_views"], "Page views", "num", "Traffic", "30d")
+    try:
+        extra = _extra_report(ctx)
+    except (SyncError, httpx.HTTPError, KeyError, ValueError, TypeError, IndexError) as e:
+        ctx.warnings.append(f"Extra Google Analytics numbers unavailable ({e}).")
+        return
+    for name, (key, label, unit, section, combine) in EXTRA.items():
+        if name in extra:
+            v = extra[name]
+            if unit == "pct":
+                v = round(v * 100, 2)
+            ctx.metric(key, round(v, 2), label, unit, section, "30d", combine)
+
+
+EXTRA = {   # GA4 metric: (key, label, unit, section, combine)
+    "newUsers": ("new_visitors", "New visitors", "num", "Traffic", "sum"),
+    "activeUsers": ("active_visitors", "Active visitors", "num", "Traffic", "sum"),
+    "engagedSessions": ("engaged_visits", "Engaged visits", "num", "Traffic", "sum"),
+    "engagementRate": ("site_engagement_rate", "Engagement rate", "pct", "Traffic", "avg"),
+    "bounceRate": ("bounce_rate", "Bounce rate", "pct", "Traffic", "avg"),
+    "averageSessionDuration": ("avg_visit_seconds", "Average visit length", "seconds", "Traffic", "avg"),
+    "screenPageViewsPerSession": ("pages_per_visit", "Pages per visit", "num", "Traffic", "avg"),
+    "eventCount": ("site_events", "Events", "num", "Traffic", "sum"),
+    "keyEvents": ("key_events", "Key events (conversions)", "num", "Sales", "sum"),
+    "ecommercePurchases": ("site_purchases", "Website purchases", "num", "Sales", "sum"),
+    "purchaseRevenue": ("site_revenue", "Website purchase revenue", "money", "Sales", "sum"),
+    "addToCarts": ("add_to_carts", "Add-to-carts", "num", "Sales", "sum"),
+    "checkouts": ("checkouts", "Checkouts started", "num", "Sales", "sum"),
+}
+
+
+def _extra_report(ctx: SyncContext) -> dict:
+    """Second, best-effort report with everything else GA4 gives for the site (last 30 days)."""
+    cred = credentials(ctx.secrets)
+    now = int(time.time())
+    assertion = jwt.encode({"iss": cred["client_email"], "scope": SCOPE, "aud": TOKEN_URL,
+                            "iat": now, "exp": now + 3600}, cred["private_key"], algorithm="RS256")
+    token = _response(ctx.client.post(TOKEN_URL, data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                                                       "assertion": assertion}, follow_redirects=False, timeout=15),
+                      token=True)["access_token"]
+    host = ctx.config["hostname"]
+    out: dict = {}
+    names = list(EXTRA)
+    for chunk in (names[:10], names[10:]):          # GA4 allows 10 metrics per request
+        body = _response(ctx.client.post(
+            f"https://analyticsdata.googleapis.com/v1beta/properties/{ctx.config['property_id']}:runReport",
+            headers={"Authorization": "Bearer " + token},
+            json={"dateRanges": [{"startDate": "29daysAgo", "endDate": "today"}],
+                  "metrics": [{"name": n} for n in chunk],
+                  "dimensionFilter": {"filter": {"fieldName": "hostName", "inListFilter": {
+                      "values": [host, "www." + host], "caseSensitive": False}}}},
+            follow_redirects=False, timeout=20))
+        heads = [h["name"] for h in body.get("metricHeaders", [])]
+        rows = body.get("rows") or []
+        vals = [float(v["value"]) for v in rows[0]["metricValues"]] if rows else [0.0] * len(heads)
+        out.update(zip(heads, vals))
+    return out

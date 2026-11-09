@@ -41,7 +41,67 @@ def _page(ctx: SyncContext) -> dict:
     page_id = (ctx.config.get("page_id") or "").strip()
     if not page_id:
         raise SyncError("Facebook: enter the Page ID")
-    return _get(ctx, page_id, fields="id,name,link,followers_count,fan_count")
+    try:
+        return _get(ctx, page_id, fields="id,name,link,followers_count,fan_count," + PAGE_EXTRA)
+    except SyncError:
+        return _get(ctx, page_id, fields="id,name,link,followers_count,fan_count")
+
+
+PAGE_EXTRA = "talking_about_count,checkins,rating_count,overall_star_rating,new_like_count,were_here_count"
+# Page Insights (needs read_insights), 28-day totals. Meta retires metrics now and then; missing ones are skipped.
+INSIGHTS = [
+    ("page_media_view", "fb_media_views_28d", "Content views", "Views", "sum"),
+    ("page_total_media_view_unique", "fb_viewers_28d", "Viewers (unique)", "Views", "sum"),
+    ("page_impressions", "fb_impressions_28d", "Impressions", "Views", "sum"),
+    ("page_posts_impressions", "fb_post_impressions_28d", "Post impressions", "Views", "sum"),
+    ("page_post_engagements", "fb_engagements_28d", "Post engagements", "Engagement", "sum"),
+    ("page_total_actions", "fb_actions_28d", "Clicks on Page actions (call, website, directions)", "Engagement", "sum"),
+    ("page_views_total", "fb_page_views_28d", "Page profile views", "Views", "sum"),
+    ("page_video_views", "fb_video_views_28d", "Video views (3 seconds+)", "Views", "sum"),
+    ("page_video_complete_views_30s", "fb_video_30s_views_28d", "Video views (30 seconds+)", "Views", "sum"),
+    ("page_daily_follows_unique", "fb_new_follows_28d", "New follows", "Audience", "sum"),
+    ("page_daily_unfollows_unique", "fb_unfollows_28d", "Unfollows", "Audience", "sum"),
+    ("page_fan_adds_unique", "fb_new_likes_28d", "New Page likes", "Audience", "sum"),
+    ("page_fan_removes_unique", "fb_unlikes_28d", "Page unlikes", "Audience", "sum"),
+    ("page_actions_post_reactions_like_total", "fb_like_reactions_28d", "Like reactions", "Engagement", "sum"),
+    ("page_actions_post_reactions_love_total", "fb_love_reactions_28d", "Love reactions", "Engagement", "sum"),
+]
+
+
+def _insight_value(item: dict):
+    vals = item.get("values") or []
+    v = vals[-1].get("value") if vals else None
+    if isinstance(v, dict):
+        v = sum(x for x in v.values() if isinstance(x, (int, float)))
+    return v
+
+
+def _page_metrics(ctx: SyncContext, page: dict) -> None:
+    ctx.metric("followers", page.get("followers_count") or page.get("fan_count"), "Page followers")
+    ctx.metric("page_likes", page.get("fan_count"), "Page likes")
+    ctx.metric("talking_about", page.get("talking_about_count"))
+    ctx.metric("fb_checkins", page.get("checkins"), "Check-ins", "num", "Audience")
+    ctx.metric("fb_were_here", page.get("were_here_count"), "People who were here", "num", "Audience")
+    ctx.metric("fb_new_likes", page.get("new_like_count"), "New likes since last check", "num", "Audience")
+    ctx.metric("fb_rating_count", page.get("rating_count"), "Reviews", "num", "Audience")
+    ctx.metric("fb_star_rating", page.get("overall_star_rating"), "Star rating", "stars", "Audience", combine="avg")
+    names = [m[0] for m in INSIGHTS]
+    found: dict = {}
+    try:
+        data = _get(ctx, f"{page['id']}/insights", metric=",".join(names), period="days_28")
+        found = {i.get("name"): _insight_value(i) for i in data.get("data", [])}
+    except SyncError:
+        for n in names:                       # one retired metric fails the whole request: ask one by one
+            try:
+                data = _get(ctx, f"{page['id']}/insights", metric=n, period="days_28")
+                for i in data.get("data", []):
+                    found[i.get("name")] = _insight_value(i)
+            except SyncError as e:
+                if "permission" in str(e).lower() or "read_insights" in str(e):
+                    ctx.warnings.append("Page Insights need the read_insights permission on the Page token.")
+                    break
+    for api_name, key, label, section, combine in INSIGHTS:
+        ctx.metric(key, found.get(api_name), label, "num", section, "28d", combine)
 
 
 def test(ctx: SyncContext) -> str:
@@ -59,6 +119,7 @@ def sync(ctx: SyncContext) -> None:
     ctx.channel.url = ctx.channel.url or page.get("link", "")
     ctx.channel.handle = ctx.channel.handle or page.get("name", "")
     ctx.stats["followers"] = ctx.channel.followers
+    _page_metrics(ctx, page)
 
     limit = max(1, min(int(ctx.config.get("max_posts") or 100), 500))
     posts: list[dict] = []

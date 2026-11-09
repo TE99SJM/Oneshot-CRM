@@ -34,6 +34,7 @@ class Channel(Base):
     monthly_cost: Mapped[float] = mapped_column(Float, default=0.0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str] = mapped_column(Text, default="")
+    display_metrics: Mapped[str] = mapped_column(Text, default="")    # JSON list of metric keys to show; "" = defaults
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -343,3 +344,29 @@ class NotifySettings(Base):
     secrets: Mapped[str] = mapped_column(Text, default="")
     history: Mapped[str] = mapped_column(Text, default="[]")       # last 25 alerts and what happened
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class ChannelMetric(Base):
+    """Every number an API gave us for a channel (latest value). One row per channel + metric key."""
+    __tablename__ = "channel_metrics"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(80), index=True)
+    label: Mapped[str] = mapped_column(String(160), default="")
+    value: Mapped[float] = mapped_column(Float, default=0.0)
+    unit: Mapped[str] = mapped_column(String(12), default="num")        # num|money|pct|seconds|minutes|hours|stars
+    section: Mapped[str] = mapped_column(String(40), default="General")  # Audience, Views, Engagement, Sales...
+    window: Mapped[str] = mapped_column(String(12), default="now")      # now|28d|30d|60d|live|all
+    combine: Mapped[str] = mapped_column(String(8), default="sum")      # sum|avg|none (how the dashboard adds channels)
+    provider: Mapped[str] = mapped_column(String(30), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class MetricSnapshot(Base):
+    """Daily reading of a channel metric, so the dashboard can show change over any period."""
+    __tablename__ = "metric_snapshots"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(80), index=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    value: Mapped[float] = mapped_column(Float, default=0.0)

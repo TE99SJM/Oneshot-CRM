@@ -64,6 +64,15 @@ def _followers(ctx, token, uid) -> int | None:
         return None
 
 
+def _dur(v: str | None) -> int:
+    """Twitch durations look like 3h21m5s."""
+    import re
+    total = 0
+    for n, u in re.findall(r"(\d+)([hms])", v or ""):
+        total += int(n) * {"h": 3600, "m": 60, "s": 1}[u]
+    return total
+
+
 def test(ctx: SyncContext) -> str:
     token = _token(ctx)
     u = _user(ctx, token)
@@ -84,6 +93,14 @@ def sync(ctx: SyncContext) -> None:
     ctx.stats["live_now"] = 1 if live else 0
     if live:
         ctx.stats["live_viewers"] = int(live[0].get("viewer_count", 0))
+    ctx.metric("followers", f, "Followers")
+    ctx.metric("live_now", 1 if live else 0, window="live")
+    ctx.metric("live_viewers", int(live[0].get("viewer_count", 0)) if live else 0, window="live")
+    if live and parse_dt(live[0].get("started_at")):
+        from ..models import utcnow
+        ctx.metric("live_minutes", round((utcnow() - parse_dt(live[0]["started_at"])).total_seconds() / 60),
+                   "Minutes live (current stream)", "minutes", "Live", "live")
+    ctx.metric("twitch_lifetime_views", u.get("view_count") or None, "Channel views (Twitch's old counter)", "num", "Views")
     limit = max(1, min(int(ctx.config.get("max_videos") or 100), 500))
     videos, cursor = [], None
     while len(videos) < limit:
@@ -112,6 +129,13 @@ def sync(ctx: SyncContext) -> None:
     for c in clips[:limit]:
         upsert_post(ctx, "twitch", f"clip:{c['id']}", title=f"Clip: {c.get('title') or 'Twitch clip'}",
                     url=c.get("url", ""), published_at=parse_dt(c.get("created_at")), views=int(c.get("view_count", 0)))
+    vids = videos[:limit]
+    ctx.metric("twitch_videos", len(vids), "Past broadcasts / highlights / uploads", "num", "Content")
+    ctx.metric("twitch_video_views", sum(int(v.get("view_count", 0)) for v in vids), "Views on videos", "num", "Views")
+    ctx.metric("twitch_broadcast_hours", round(sum(_dur(v.get("duration")) for v in vids) / 3600, 1),
+               "Hours of saved video", "hours", "Content")
+    ctx.metric("twitch_clips", len(clips[:limit]), "Clips", "num", "Content")
+    ctx.metric("twitch_clip_views", sum(int(c.get("view_count", 0)) for c in clips[:limit]), "Views on clips", "num", "Views")
     if not videos and not clips:
         ctx.warnings.append("No past broadcasts or clips found. Twitch deletes past broadcasts after 7-60 days unless you "
                             "turn on “Store past broadcasts” (Creator Dashboard → Settings → Stream) or save them as highlights.")

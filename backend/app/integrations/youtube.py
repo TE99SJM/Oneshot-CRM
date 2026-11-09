@@ -78,7 +78,12 @@ def sync(ctx: SyncContext) -> None:
     ctx.channel.url = ctx.channel.url or f"https://www.youtube.com/channel/{ch['id']}"
     ctx.stats["followers"] = ctx.channel.followers
     ctx.stats["total_views"] = int(stats.get("viewCount", 0))      # lifetime channel views (all videos)
+    if not stats.get("hiddenSubscriberCount"):
+        ctx.metric("followers", stats.get("subscriberCount"), "Subscribers")
+    ctx.metric("total_views", stats.get("viewCount"), "Lifetime channel views")
+    ctx.metric("video_count", stats.get("videoCount"), "Public videos")
 
+    _analytics(ctx)
     uploads = ch.get("contentDetails", {}).get("relatedPlaylists", {}).get("uploads")
     if not uploads:
         return
@@ -105,10 +110,95 @@ def sync(ctx: SyncContext) -> None:
                         comments=int(st.get("commentCount", 0)))
 
 
+# ---------------------------------------------------------------- YouTube Analytics (needs the Google sign-in)
+ANALYTICS = "https://youtubeanalytics.googleapis.com/v2/reports"
+# metric: (key, label, unit, section, combine)
+CORE = [
+    ("views", "yt_views_28d", "Views", "num", "Views", "sum"),
+    ("estimatedMinutesWatched", "watch_minutes_28d", "Minutes watched", "minutes", "Watch time", "sum"),
+    ("averageViewDuration", "avg_view_seconds_28d", "Average view duration", "seconds", "Watch time", "avg"),
+    ("averageViewPercentage", "avg_view_pct_28d", "Average percentage viewed", "pct", "Watch time", "avg"),
+    ("subscribersGained", "subs_gained_28d", "Subscribers gained", "num", "Audience", "sum"),
+    ("subscribersLost", "subs_lost_28d", "Subscribers lost", "num", "Audience", "sum"),
+    ("likes", "yt_likes_28d", "Likes", "num", "Engagement", "sum"),
+    ("dislikes", "yt_dislikes_28d", "Dislikes", "num", "Engagement", "sum"),
+    ("comments", "yt_comments_28d", "Comments", "num", "Engagement", "sum"),
+    ("shares", "yt_shares_28d", "Shares", "num", "Engagement", "sum"),
+    ("videosAddedToPlaylists", "playlist_adds_28d", "Added to playlists", "num", "Engagement", "sum"),
+]
+MONEY = [
+    ("estimatedRevenue", "yt_revenue_28d", "Estimated revenue", "money", "Revenue", "sum"),
+    ("estimatedAdRevenue", "yt_ad_revenue_28d", "Estimated ad revenue", "money", "Revenue", "sum"),
+    ("grossRevenue", "yt_gross_revenue_28d", "Gross ad revenue", "money", "Revenue", "sum"),
+    ("cpm", "yt_cpm_28d", "CPM", "money", "Revenue", "avg"),
+    ("playbackBasedCpm", "yt_playback_cpm_28d", "Playback-based CPM", "money", "Revenue", "avg"),
+    ("adImpressions", "yt_ad_impressions_28d", "Ad impressions", "num", "Revenue", "sum"),
+    ("monetizedPlaybacks", "yt_monetized_playbacks_28d", "Monetized playbacks", "num", "Revenue", "sum"),
+]
+LIFETIME = [
+    ("estimatedMinutesWatched", "watch_hours_all", "Watch hours (all time)", "hours", "Watch time", "sum"),
+    ("subscribersGained", "subs_gained_all", "Subscribers gained (all time)", "num", "Audience", "sum"),
+]
+
+
+def _report(ctx, token: str, metrics: list, start: str, end: str) -> dict:
+    r = ctx.client.get(ANALYTICS, headers={"Authorization": f"Bearer {token}"},
+                       params={"ids": "channel==MINE", "startDate": start, "endDate": end,
+                               "metrics": ",".join(m[0] for m in metrics)})
+    data = check_response(r, "YouTube Analytics")
+    heads = [h.get("name") for h in data.get("columnHeaders") or []]
+    row = (data.get("rows") or [[0] * len(heads)])[0]
+    return dict(zip(heads, row))
+
+
+def _analytics(ctx: SyncContext) -> None:
+    """Watch time, subscribers gained/lost, shares... (and revenue when the channel is monetized)."""
+    from datetime import date, timedelta
+    if not ctx.secrets.get("refresh_token"):
+        ctx.warnings.append("For watch time, subscribers gained/lost, shares and revenue, sign in with Google "
+                            "(Integrations → YouTube → “Set up posting”).")
+        return
+    try:
+        token = access_token(ctx.client, ctx.config, ctx.secrets)
+    except SyncError as e:
+        ctx.warnings.append(f"YouTube Analytics skipped ({e}).")
+        return
+    end = date.today()
+    start = (end - timedelta(days=27)).isoformat()
+    try:
+        vals = _report(ctx, token, CORE, start, end.isoformat())
+    except SyncError as e:
+        msg = str(e)
+        if "403" in msg or "denied" in msg or "insufficient" in msg.lower() or "scope" in msg.lower():
+            ctx.warnings.append("YouTube Analytics needs one more sign-in to allow it: Integrations → YouTube → "
+                                "“Set up posting” and sign in again (adds watch time, subscribers gained, revenue).")
+        else:
+            ctx.warnings.append(f"YouTube Analytics unavailable ({msg}).")
+        return
+    for api_name, key, label, unit, section, combine in CORE:
+        ctx.metric(key, vals.get(api_name), label, unit, section, "28d", combine)
+    try:
+        money = _report(ctx, token, MONEY, start, end.isoformat())
+        for api_name, key, label, unit, section, combine in MONEY:
+            ctx.metric(key, money.get(api_name), label, unit, section, "28d", combine)
+    except SyncError:
+        pass          # not in the YouTube Partner Program, or the money permission wasn't granted
+    try:
+        life = _report(ctx, token, LIFETIME, "2005-02-14", end.isoformat())
+        ctx.metric("watch_hours_all", round(float(life.get("estimatedMinutesWatched") or 0) / 60, 1),
+                   "Watch hours (all time)", "hours", "Watch time", "all", "sum")
+        ctx.metric("subs_gained_all", life.get("subscribersGained"), "Subscribers gained (all time)", "num",
+                   "Audience", "all", "sum")
+    except SyncError:
+        pass
+
+
 # ---------------------------------------------------------------- posting sign-in (OAuth 2.0, installed-app flow)
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
-UPLOAD_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
+UPLOAD_SCOPES = ("https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly "
+                 "https://www.googleapis.com/auth/yt-analytics.readonly "
+                 "https://www.googleapis.com/auth/yt-analytics-monetary.readonly")
 REDIRECT_URI = "http://127.0.0.1"      # loopback redirect for "Desktop app" clients; the user pastes the address back
 CALLBACK_PATH = "/api/oauth/youtube/callback"   # automatic return (needs a "Web application" client + public https host)
 

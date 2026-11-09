@@ -50,7 +50,56 @@ def _account(ctx) -> dict:
     if not ig:
         raise SyncError("Instagram: no professional Instagram account is linked to this Page "
                         "(or the token is missing instagram_basic)")
-    return _get(ctx, ig, fields="id,username,followers_count,media_count")
+    try:
+        return _get(ctx, ig, fields="id,username,followers_count,follows_count,media_count")
+    except SyncError:
+        return _get(ctx, ig, fields="id,username,followers_count,media_count")
+
+
+# Account insights (needs instagram_manage_insights), totals for the last 28 days.
+INSIGHTS = [
+    ("views", "ig_views_28d", "Views", "Views"),
+    ("reach", "ig_reach_28d", "Accounts reached", "Views"),
+    ("accounts_engaged", "ig_accounts_engaged_28d", "Accounts engaged", "Engagement"),
+    ("total_interactions", "ig_interactions_28d", "Total interactions", "Engagement"),
+    ("likes", "ig_likes_28d", "Likes", "Engagement"),
+    ("comments", "ig_comments_28d", "Comments", "Engagement"),
+    ("shares", "ig_shares_28d", "Shares", "Engagement"),
+    ("saves", "ig_saves_28d", "Saves", "Engagement"),
+    ("replies", "ig_replies_28d", "Story replies", "Engagement"),
+    ("reposts", "ig_reposts_28d", "Reposts", "Engagement"),
+    ("profile_links_taps", "ig_link_taps_28d", "Profile link taps", "Engagement"),
+    ("follows_and_unfollows", "ig_follows_net_28d", "Follows minus unfollows", "Audience"),
+]
+
+
+def _insights(ctx, ig_id: str) -> None:
+    import time
+    until = int(time.time())
+    since = until - 28 * 86400
+    names = [m[0] for m in INSIGHTS]
+    found: dict = {}
+
+    def read(data):
+        for i in data.get("data", []):
+            tv = i.get("total_value") or {}
+            v = tv.get("value")
+            if v is None and tv.get("breakdowns"):
+                v = sum(r.get("value", 0) for b in tv["breakdowns"] for r in b.get("results", []))
+            found[i.get("name")] = v
+    params = {"period": "day", "metric_type": "total_value", "since": since, "until": until}
+    try:
+        read(_get(ctx, f"{ig_id}/insights", metric=",".join(names), **params))
+    except SyncError:
+        for n in names:
+            try:
+                read(_get(ctx, f"{ig_id}/insights", metric=n, **params))
+            except SyncError as e:
+                if "permission" in str(e).lower():
+                    ctx.warnings.append("Instagram insights need the instagram_manage_insights permission.")
+                    break
+    for api_name, key, label, section in INSIGHTS:
+        ctx.metric(key, found.get(api_name), label, "num", section, "28d")
 
 
 def test(ctx: SyncContext) -> str:
@@ -65,6 +114,10 @@ def sync(ctx: SyncContext) -> None:
         ctx.channel.handle = ctx.channel.handle or f"@{a['username']}"
         ctx.channel.url = ctx.channel.url or f"https://www.instagram.com/{a['username']}/"
     ctx.stats["followers"] = ctx.channel.followers
+    ctx.metric("followers", a.get("followers_count"), "Followers")
+    ctx.metric("following", a.get("follows_count"))
+    ctx.metric("media_count", a.get("media_count"), "Posts on profile")
+    _insights(ctx, a["id"])
     limit = max(1, min(int(ctx.config.get("max_posts") or 100), 500))
     fields = "id,caption,media_type,permalink,timestamp,like_count,comments_count"
     try:

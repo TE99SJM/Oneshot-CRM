@@ -2,6 +2,8 @@ import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { Badge, Empty, Field, Modal } from "../components/ui";
+import { ChannelData, MetricPicker, MetricTiles } from "../components/ChannelData";
+import { Period, PeriodPicker, loadPeriod, periodInfo, savePeriod, tzOffset } from "../components/Period";
 import { money, num } from "../format";
 import { useCrm } from "../store/crmStore";
 import { toastError, useToasts } from "../store/toastStore";
@@ -51,6 +53,15 @@ export default function ChannelsPage() {
       await loadChannels();
     } catch (err) { toastError(err); } finally { e.target.value = ""; }
   }
+  const [period, setPeriodState] = useState<Period>(loadPeriod);
+  const info = periodInfo(period);
+  const setPeriod = (p: Period) => { savePeriod(p); setPeriodState(p); };
+  const [data, setData] = useState<Record<number, ChannelData>>({});
+  const [picking, setPicking] = useState<ChannelData | null>(null);
+  useEffect(() => {
+    api.get<ChannelData[]>("/metrics/channels", { start: info.start, end: info.end, tz_offset: tzOffset() })
+      .then((rows) => setData(Object.fromEntries(rows.map((r) => [r.channel.id, r])))).catch(() => {});
+  }, [channels, info.start, info.end]);
   const [editing, setEditing] = useState<Partial<Channel> | null>(null);
   const [kind, setKind] = useState<ChannelKind | "">("");
   const shown = channels.filter((c) => !kind || c.kind === kind);
@@ -58,7 +69,7 @@ export default function ChannelsPage() {
   return (
     <div className="page">
       <header className="page-head">
-        <div><h1>Channels</h1><p className="muted">Social accounts and sales channels, with attributed leads, deals and revenue.</p></div>
+        <div><h1>Channels</h1><p className="muted">Social accounts and sales channels. Use “Choose data” on a card to pick which numbers it shows.</p></div>
         <div className="row">
           <button className="btn" title="Download all channels in the import format (an empty CRM gives a blank template)"
             onClick={() => api.download("/channels/export", "channels.csv").catch(toastError)}>Export / template</button>
@@ -68,6 +79,7 @@ export default function ChannelsPage() {
         </div>
       </header>
       <div className="toolbar">
+        <PeriodPicker value={period} onChange={setPeriod} testId="channels-period" />
         <div className="segmented">
           <button className={kind === "" ? "active" : ""} onClick={() => setKind("")}>All</button>
           {KINDS.map((k) => <button key={k} className={kind === k ? "active" : ""} onClick={() => setKind(k)}>{KIND_LABEL[k]}</button>)}
@@ -102,6 +114,7 @@ export default function ChannelsPage() {
                       {i.last_status === "error" ? "Live sync error" : `Live · ${ago(i.last_sync_at)}`}</Badge></span>;
                   })()}
                 </div>
+{data[c.id] ? <MetricTiles data={data[c.id]} periodShort={info.short} /> : (
                 <div className="mini-stats">
                   <div><span className="mono">{num(c.followers)}</span><small>audience</small></div>
                   <div><span className="mono">{num(c.contacts)}</span><small>leads</small></div>
@@ -109,6 +122,11 @@ export default function ChannelsPage() {
                   <div><span className="mono">{money(c.won_revenue)}</span><small>won</small></div>
                   <div><span className="mono">{num(c.posts)}</span><small>posts</small></div>
                   <div><span className="mono">{num(c.views)}</span><small>lifetime views</small></div>
+                </div>)}
+                <div className="row-between">
+                  <span className="muted small">{data[c.id] ? `${data[c.id].metrics.length} data points available` : ""}</span>
+                  {data[c.id] && <button className="btn btn-sm" data-testid={`choose-data-${c.id}`}
+                    onClick={(e) => { e.stopPropagation(); setPicking(data[c.id]); }}>Choose data</button>}
                 </div>
                 {c.monthly_cost > 0 && <div className="muted small">{money(c.monthly_cost)}/mo{roi !== null && ` · ${roi.toFixed(1)}× lifetime return on monthly cost`}</div>}
               </article>
@@ -116,6 +134,8 @@ export default function ChannelsPage() {
           })}
         </div>
       )}
+      {picking && <MetricPicker data={picking} periodLabel={info.label} onClose={() => setPicking(null)}
+        onSaved={(d) => setData((x) => ({ ...x, [d.channel.id]: d }))} />}
       {editing && <ChannelForm initial={editing} onClose={() => setEditing(null)} />}
     </div>
   );

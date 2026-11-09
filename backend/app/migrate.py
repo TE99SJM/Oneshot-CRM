@@ -7,7 +7,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
 ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
-    "channels": [("total_views", "INTEGER DEFAULT 0 NOT NULL")],
+    "channels": [("total_views", "INTEGER DEFAULT 0 NOT NULL"), ("display_metrics", "TEXT DEFAULT '' NOT NULL")],
     "contacts": [("external_source", "VARCHAR(30) DEFAULT '' NOT NULL"), ("external_id", "VARCHAR(120) DEFAULT '' NOT NULL")],
     "deals": [("external_source", "VARCHAR(30) DEFAULT '' NOT NULL"), ("external_id", "VARCHAR(120) DEFAULT '' NOT NULL")],
     "orders": [("buyer_username", "VARCHAR(120) DEFAULT '' NOT NULL")],

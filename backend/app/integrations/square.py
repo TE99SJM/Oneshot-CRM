@@ -117,7 +117,30 @@ def _sync_customers(ctx) -> dict[str, Contact]:
         if not cursor:
             break
     ctx.db.flush()
+    ctx.metric("square_customers", seen, "Customers in Square directory", "num", "Sales", combine="sum")
     return {c.external_id: c for c in ctx.db.scalars(select(Contact).where(Contact.external_source == "square"))}
+
+
+def _catalog_metrics(ctx) -> None:
+    """How many items / variations you sell and how many are in stock (best effort)."""
+    items = variations = 0
+    cursor, pages = None, 0
+    try:
+        while pages < 20:
+            data = _get(ctx, "/v2/catalog/list", types="ITEM", **({"cursor": cursor} if cursor else {}))
+            for o in data.get("objects") or []:
+                if o.get("is_deleted"):
+                    continue
+                items += 1
+                variations += len((o.get("item_data") or {}).get("variations") or [])
+            cursor, pages = data.get("cursor"), pages + 1
+            if not cursor:
+                break
+    except SyncError as e:
+        ctx.warnings.append(f"Catalog counts unavailable ({e}).")
+        return
+    ctx.metric("square_items", items, "Catalog items", "num", "Products")
+    ctx.metric("square_variations", variations, "Item variations (sizes, colors...)", "num", "Products")
 
 
 def _money(m) -> float:
@@ -287,6 +310,8 @@ def sync(ctx: SyncContext) -> None:
     if not locs:
         raise SyncError("Square: no active locations found on this account")
     locations = {loc["id"]: loc.get("name", "") for loc in locs}
+    ctx.metric("square_locations", len(locs), "Active locations", "num", "Sales")
+    _catalog_metrics(ctx)
     contacts = _sync_customers(ctx)
     funnel, stages = _funnel(ctx)
 

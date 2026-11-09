@@ -218,6 +218,19 @@ def sync(ctx: SyncContext) -> None:
         followers, subs = _api_counts(data)
         if subs is not None:
             ctx.stats["subscribers"] = subs
+        ctx.metric("subscribers", subs, "Subscribers (paid)")
+        f_ = data.get("followers") or {}
+        if isinstance(f_, dict):
+            ctx.metric("rumble_followers_new", f_.get("num_followers"), "Followers (recent counter)", "num", "Audience")
+        streams = [x for x in (data.get("livestreams") or []) if isinstance(x, dict)]
+        ctx.metric("live_now", sum(1 for x in streams if x.get("is_live")), window="live")
+        ctx.metric("live_viewers", sum(int(x.get("watching_now") or 0) for x in streams), window="live")
+        ctx.metric("rumble_live_likes", sum(int(x.get("likes") or 0) for x in streams), "Likes on live streams", "num", "Live", "live")
+        ctx.metric("rumble_live_dislikes", sum(int(x.get("dislikes") or 0) for x in streams), "Dislikes on live streams", "num", "Live", "live")
+        rants = [r for x in streams for r in ((x.get("chat") or {}).get("recent_rants") or []) if isinstance(r, dict)]
+        if rants:
+            ctx.metric("rumble_rants", sum(float(r.get("amount_dollars") or 0) for r in rants), "Recent rants (tips)",
+                       "money", "Revenue", "live")
         for ls in data.get("livestreams") or []:
             if not isinstance(ls, dict) or not ls.get("id"):
                 continue
@@ -239,5 +252,8 @@ def sync(ctx: SyncContext) -> None:
     if followers is not None:
         ctx.channel.followers = followers
         ctx.stats["followers"] = followers
+    ctx.metric("followers", followers, "Followers")
+    if videos:
+        ctx.metric("video_count", len({v["key"] for v in videos}), "Videos read from channel page")
     if not ctx.channel.url and ctx.config.get("channel_url"):
         ctx.channel.url = ctx.config["channel_url"]

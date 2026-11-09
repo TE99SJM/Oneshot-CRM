@@ -21,6 +21,8 @@ from .square import _funnel
 FUNNEL_NAME = "eBay Sales"
 STAGES = ("Needs shipping", "Shipped", "Refunded / canceled")
 SCOPES = ["https://api.ebay.com/oauth/api_scope", "https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly"]
+ANALYTICS_SCOPE = "https://api.ebay.com/oauth/api_scope/sell.analytics.readonly"
+AUTH_SCOPES = SCOPES + [ANALYTICS_SCOPE]      # asked for at sign-in; syncing still works with the older two
 MAX_ORDERS = 5000
 MAX_TRACKING_LOOKUPS = 400        # per sync; tracking for older orders is kept from previous syncs
 
@@ -88,7 +90,7 @@ def authorize_url(integration_id: int, config: dict) -> str:
         raise SyncError("eBay: save the App ID and RuName first")
     auth, _ = _hosts(config)
     q = urlencode({"client_id": config["client_id"], "response_type": "code", "redirect_uri": config["ru_name"],
-                   "scope": " ".join(SCOPES), "state": make_state(integration_id), "prompt": "login"})
+                   "scope": " ".join(AUTH_SCOPES), "state": make_state(integration_id), "prompt": "login"})
     return f"{auth}/oauth2/authorize?{q}"
 
 
@@ -419,3 +421,89 @@ def sync(ctx: SyncContext) -> None:
         ctx.warnings.append("Tracking for some older orders will fill in on the next syncs.")
     ctx.stats["orders_synced"] = total
     ctx.stats["revenue_synced"] = round(revenue, 2)
+    _listing_counts(ctx, token)
+    _traffic(ctx)
+
+
+TRAFFIC = [  # eBay metric: (key, label, section)
+    ("LISTING_IMPRESSION_TOTAL", "ebay_impressions_30d", "Listing impressions", "Traffic"),
+    ("LISTING_IMPRESSION_SEARCH_RESULTS_PAGE", "ebay_search_impressions_30d", "Impressions in search results", "Traffic"),
+    ("LISTING_IMPRESSION_STORE", "ebay_store_impressions_30d", "Impressions in your eBay Store", "Traffic"),
+    ("LISTING_VIEWS_TOTAL", "ebay_views_30d", "Listing page views", "Traffic"),
+    ("LISTING_VIEWS_SOURCE_DIRECT", "ebay_views_direct_30d", "Page views: direct", "Traffic"),
+    ("LISTING_VIEWS_SOURCE_OFF_EBAY", "ebay_views_off_ebay_30d", "Page views from outside eBay", "Traffic"),
+    ("LISTING_VIEWS_SOURCE_SEARCH_RESULTS_PAGE", "ebay_views_search_30d", "Page views from search", "Traffic"),
+    ("TRANSACTION", "ebay_transactions_30d", "Transactions (items sold)", "Sales"),
+]
+
+
+def _traffic(ctx: SyncContext) -> None:
+    """Impressions, listing views and conversion (Sell Analytics, last 30 days). Needs the sign-in to include
+    sell.analytics.readonly - connections signed in before this version need one more “Sign in with eBay”."""
+    rt = ctx.secrets.get("refresh_token", "").strip()
+    try:
+        tok = _token_call(ctx.client, ctx.config, ctx.secrets, {"grant_type": "refresh_token", "refresh_token": rt,
+                                                                 "scope": " ".join([SCOPES[0], ANALYTICS_SCOPE])})["access_token"]
+    except SyncError:
+        ctx.warnings.append("For eBay impressions, page views and conversion rate, click “Sign in with eBay” once more "
+                            "(it adds the analytics permission).")
+        return
+    end = utcnow().date() - timedelta(days=1)
+    start = end - timedelta(days=29)
+    try:
+        data = _api_get(ctx, tok, "/sell/analytics/v1/traffic_report", dimension="DAY",
+                        metric=",".join(m[0] for m in TRAFFIC),
+                        filter=f"marketplace_ids:{{EBAY_US}},date_range:[{start:%Y%m%d}..{end:%Y%m%d}]")
+    except SyncError as e:
+        ctx.warnings.append(f"eBay traffic report unavailable ({e}).")
+        return
+    keys = [h.get("key") for h in (data.get("header") or {}).get("metrics") or []]
+    totals = dict.fromkeys(keys, 0.0)
+    for rec in data.get("records") or []:
+        for k, mv in zip(keys, rec.get("metricValues") or []):
+            try:
+                totals[k] += float(mv.get("value") or 0)
+            except (TypeError, ValueError):
+                pass
+    for api_name, key, label, section in TRAFFIC:
+        if api_name in totals:
+            ctx.metric(key, totals[api_name], label, "num", section, "30d")
+    imp, views, tx = (totals.get("LISTING_IMPRESSION_TOTAL"), totals.get("LISTING_VIEWS_TOTAL"),
+                      totals.get("TRANSACTION"))
+    if imp:
+        ctx.metric("ebay_ctr_30d", round((views or 0) / imp * 100, 2), "Views per impression (click-through)", "pct",
+                   "Traffic", "30d", "avg")
+    if views:
+        ctx.metric("ebay_conversion_30d", round((tx or 0) / views * 100, 2), "Sales conversion rate", "pct",
+                   "Traffic", "30d", "avg")
+
+
+def _listing_counts(ctx: SyncContext, token: str) -> None:
+    """Active / sold / unsold listing counts from the Trading API (GetMyeBaySelling)."""
+    import re
+    _, api = _hosts(ctx.config)
+    xml = ('<?xml version="1.0" encoding="utf-8"?><GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">'
+           + "".join(f"<{n}><Include>true</Include><Pagination><EntriesPerPage>1</EntriesPerPage></Pagination></{n}>"
+                     for n in ("ActiveList", "SoldList", "UnsoldList"))
+           + "<DetailLevel>ReturnSummary</DetailLevel></GetMyeBaySellingRequest>")
+    try:
+        r = ctx.client.post(f"{api}/ws/api.dll", content=xml.encode(), headers={
+            "X-EBAY-API-CALL-NAME": "GetMyeBaySelling", "X-EBAY-API-SITEID": "0",
+            "X-EBAY-API-COMPATIBILITY-LEVEL": "1193", "X-EBAY-API-IAF-TOKEN": token, "Content-Type": "text/xml"})
+    except Exception as e:  # network
+        ctx.warnings.append(f"Listing counts unavailable ({type(e).__name__}).")
+        return
+    body = r.text if r.status_code < 400 else ""
+    if "<Ack>Failure</Ack>" in body or not body:
+        ctx.warnings.append("Listing counts unavailable (eBay Trading API refused the request).")
+        return
+
+    def total(section: str):
+        m = re.search(rf"<{section}>.*?<TotalNumberOfEntries>(\d+)</TotalNumberOfEntries>", body, re.S)
+        return int(m.group(1)) if m else None
+    ctx.metric("ebay_active_listings", total("ActiveList"), "Active listings", "num", "Listings")
+    ctx.metric("ebay_sold_listings_60d", total("SoldList"), "Sold listings", "num", "Listings", "60d")
+    ctx.metric("ebay_unsold_listings_60d", total("UnsoldList"), "Ended without selling", "num", "Listings", "60d")
+    m = re.search(r"<Summary>.*?<TotalAuctionSellingValue[^>]*>([\d.]+)<", body, re.S)
+    if m:
+        ctx.metric("ebay_auction_value", float(m.group(1)), "Current auction value", "money", "Listings")

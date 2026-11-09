@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Period, PeriodPicker, loadPeriod, periodInfo, savePeriod, tzOffset } from "../components/Period";
 import StatChartModal, { MetricKey } from "../components/StatChartModal";
 import SiteVisitors from "../components/SiteVisitors";
+import { CombinedByType, CombinedGroup } from "../components/ChannelData";
 import { SeriesPoint, TrendChart } from "../components/TrendChart";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
@@ -19,6 +20,7 @@ export default function DashboardPage() {
   const [chart, setChart] = useState<MetricKey | null>(null);
   const [revenue, setRevenue] = useState<{ bucket: string; points: SeriesPoint[] } | null>(null);
   const channels = useCrm((s) => s.channels);
+  const [combined, setCombined] = useState<CombinedGroup[]>([]);
   const info = periodInfo(period);
   const setPeriod = (p: Period) => { savePeriod(p); setPeriodState(p); };
 
@@ -26,6 +28,7 @@ export default function DashboardPage() {
     const q = { start: info.start, end: info.end, tz_offset: tzOffset() };
     api.get<Dashboard>("/dashboard", q).then(setData).catch(toastError);
     api.get<{ bucket: string; points: SeriesPoint[] }>("/dashboard/series/won_revenue", q).then(setRevenue).catch(() => setRevenue(null));
+    api.get<{ groups: CombinedGroup[] }>("/metrics/combined", q).then((r) => setCombined(r.groups)).catch(() => setCombined([]));
   };
   useEffect(() => { load(); }, [info.start, info.end]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const t = setInterval(load, 5 * 60000); return () => clearInterval(t); }, [info.start, info.end]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -88,6 +91,8 @@ export default function DashboardPage() {
           sub={k.views_history_since ? `all channels · daily history since ${shortDate(k.views_history_since)}` : "all channels · sync to fill in"}
           onClick={() => setChart("views_total")} testId="stat-views-lifetime" />
       </section>
+
+      <CombinedByType groups={combined} periodShort={info.short} />
 
       <SiteVisitors start={info.start} end={info.end} label={info.label} />
 

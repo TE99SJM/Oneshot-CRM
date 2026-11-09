@@ -364,6 +364,8 @@ def _sync_products(ctx: SyncContext) -> None:
         if not token:
             break
     ctx.stats["products"], ctx.stats["products_live"] = total, live
+    ctx.metric("products", total, "Products", "num", "Products")
+    ctx.metric("products_live", live, "Products live", "num", "Products")
 
 
 # ---------------------------------------------------------------- buyer messages

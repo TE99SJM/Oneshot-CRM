@@ -171,6 +171,10 @@ def sync(ctx: SyncContext) -> None:
     for k in ("following_count", "likes_count", "video_count"):
         if u.get(k) is not None:
             ctx.stats[k.replace("_count", "")] = int(u[k])
+    ctx.metric("followers", u.get("follower_count"), "Followers")
+    ctx.metric("following", u.get("following_count"))
+    ctx.metric("total_likes_received", u.get("likes_count"), "Total likes received")
+    ctx.metric("video_count", u.get("video_count"), "Public videos")
     ctx.stats["account"] = name
 
     try:

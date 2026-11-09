@@ -62,6 +62,19 @@ class SyncContext:
     stats: dict = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     integration_id: int | None = None
+    metrics: dict = field(default_factory=dict)      # key -> {value, label, unit, section, window, combine}
+
+    def metric(self, key: str, value, label: str | None = None, unit: str | None = None, section: str | None = None,
+               window: str = "now", combine: str | None = None) -> None:
+        """Record one number from the platform's API. Unknown/None values are skipped."""
+        if value is None or value == "":
+            return
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return
+        self.metrics[key] = {"value": v, "label": label, "unit": unit, "section": section, "window": window,
+                             "combine": combine}
 
     def count(self, key: str, n: int = 1) -> None:
         self.stats[key] = self.stats.get(key, 0) + n

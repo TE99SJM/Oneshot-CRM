@@ -584,3 +584,32 @@ html { -webkit-text-size-adjust: 100%; }
   .thread-head > div { flex: 1; min-width: 0; }
   .thread-head .btn-sm { min-height: 40px; font-size: 14px; padding: 0 10px; }
 }
+
+/* ---- channel data picker + combined dashboard ---- */
+.mini-stats div small + small { margin-top: 2px; }
+.metric-picker-tools { flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+.metric-picker-tools input { flex: 1 1 200px; }
+.metric-section { margin-bottom: 14px; }
+.metric-section h4 { margin: 6px 0; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.metric-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; }
+.metric-option { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; min-width: 0; }
+.metric-option.on { border-color: var(--primary, #3b82f6); background: var(--surface-2); }
+.metric-option-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.metric-option-text > span { overflow-wrap: anywhere; }
+.metric-option .mono { font-weight: 700; white-space: nowrap; }
+.section-title { font-size: 18px; margin: 6px 0 10px; }
+.combined { margin-bottom: 18px; }
+.combined-group { margin-bottom: 12px; }
+.combined-group .row-between { gap: 10px; flex-wrap: wrap; }
+.combined-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin-top: 8px; }
+.combined-tile { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); min-width: 0; }
+.combined-tile strong { font-size: 22px; }
+.combined-tile.open { outline: 2px solid var(--primary, #3b82f6); }
+.combined-tile:focus-visible { outline: 2px solid var(--primary, #3b82f6); }
+.combined-breakdown { list-style: none; margin: 6px 0 0; padding: 6px 0 0; border-top: 1px solid var(--border); font-size: 12px; }
+.combined-breakdown li { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+@media (max-width: 760px) {
+  .combined-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .combined-tile strong { font-size: 19px; }
+  .metric-options { grid-template-columns: 1fr; }
+}

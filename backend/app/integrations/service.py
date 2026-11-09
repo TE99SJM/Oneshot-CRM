@@ -68,6 +68,16 @@ def update_total_views(db: Session, ctx: base.SyncContext) -> None:
         ctx.stats["total_views"] = total          # stores with no videos don't show "0 lifetime views"
 
 
+def _save_metrics(db: Session, ctx: base.SyncContext, provider: str) -> None:
+    """Store every number the provider reported (plus followers / lifetime views) for the Channels tab."""
+    from ..metrics import save_api_metrics
+    if "followers" not in ctx.metrics and ctx.stats.get("followers") is not None:
+        ctx.metric("followers", ctx.stats["followers"])
+    if "total_views" not in ctx.metrics and ctx.stats.get("total_views"):
+        ctx.metric("total_views", ctx.stats["total_views"])
+    ctx.stats["metrics"] = save_api_metrics(db, ctx.channel.id, provider, ctx.metrics)
+
+
 def run_sync(db: Session, integ: Integration) -> Integration:
     lock = _lock(integ.id)
     if not lock.acquire(blocking=False):
@@ -85,6 +95,7 @@ def run_sync(db: Session, integ: Integration) -> Integration:
                 PROVIDERS[integ.provider].sync(ctx)
                 db.flush()
                 update_total_views(db, ctx)
+                _save_metrics(db, ctx, integ.provider)
             integ.last_status, integ.last_error = "ok", ""
             integ.last_sync_at = started
             integ.last_result = json.dumps({**ctx.stats, "warnings": ctx.warnings,
