@@ -1,3 +1,4 @@
+import { useSyncRevision } from "../hooks/useAutoSync";
 import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { DateRangePicker, Range, defaultRange } from "../components/DateRange";
@@ -25,6 +26,7 @@ function StateBadge({ o }: { o: Pick<OrderRow, "state" | "refunded" | "total"> }
 }
 
 export default function OrdersPage() {
+  const syncRevision = useSyncRevision();
   const [data, setData] = useState<OrderPage | null>(null);
   const [q, setQ] = useState("");
   const [state, setState] = useState("");
@@ -52,7 +54,7 @@ export default function OrdersPage() {
       api.get<OrderPage>("/orders", { ...query(), limit: PAGE, offset }).then(setData).catch(toastError);
     }, 200);
     return () => clearTimeout(t);
-  }, [query, offset]);
+  }, [query, offset, syncRevision]);
   useEffect(() => setOffset(0), [q, state, fulfillment, store, from, to]);
 
   const exportCsv = () => {

@@ -1,3 +1,4 @@
+import { useSyncRevision } from "../hooks/useAutoSync";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
@@ -6,6 +7,7 @@ import type { VisitorReport, VisitorSite } from "../types";
 import { Badge } from "./ui";
 
 export default function SiteVisitors({ start, end, label }: { start: string; end: string; label: string }) {
+  const syncRevision = useSyncRevision();
   const [sites, setSites] = useState<VisitorSite[] | null>(null);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -16,7 +18,7 @@ export default function SiteVisitors({ start, end, label }: { start: string; end
       .then((data) => { if (active) setSites(data); })
       .catch(() => { if (active) setError("Could not load your site connections."); });
     return () => { active = false; };
-  }, [retry]);
+  }, [retry, syncRevision]);
 
   return (
     <section className="site-visitors" aria-labelledby="site-visitor-heading" data-testid="site-visitors">
@@ -40,6 +42,7 @@ export default function SiteVisitors({ start, end, label }: { start: string; end
 }
 
 function SiteCard({ site, start, end }: { site: VisitorSite; start: string; end: string }) {
+  const syncRevision = useSyncRevision();
   const [report, setReport] = useState<VisitorReport | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(site.enabled);
@@ -53,7 +56,7 @@ function SiteCard({ site, start, end }: { site: VisitorSite; start: string; end:
       .catch((err) => { if (active) setError(err instanceof Error ? err.message : "Could not load visitor data."); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [site.id, site.enabled, start, end, refresh]);
+  }, [site.id, site.enabled, start, end, refresh, syncRevision]);
 
   return (
     <article className="card site-visitor-card" data-testid={`site-visitors-${site.id}`}>

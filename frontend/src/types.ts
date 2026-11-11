@@ -65,7 +65,7 @@ export interface Provider {
 export interface Integration {
   id: number; provider: string; name: string; channel_id: number | null; channel_name: string | null;
   config: Record<string, string>; saved_secrets: string[]; secrets_ok: boolean; enabled: boolean;
-  sync_interval_minutes: number; last_sync_at: string | null; next_sync_at: string | null; last_status: "never" | "ok" | "error" | "running";
+  sync_interval_minutes: number; sync_on_open: boolean; last_sync_at: string | null; next_sync_at: string | null; last_status: "never" | "ok" | "error" | "running";
   last_error: string; last_result: Record<string, unknown> & { warnings?: string[] }; created_at: string;
 }
 

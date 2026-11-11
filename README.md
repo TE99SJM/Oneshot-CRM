@@ -285,6 +285,18 @@ Default schedule:
 | TikTok Shop buyer messages | Every 5 minutes |
 
 Sales and stats run in two separate background lanes, so a slow stats sync never holds up sales and vice versa.
+Opening FunnelHub in a browser (after sign-in) also starts a background sync of enabled automatic connections.
+Under **Integrations → Edit**, **Sync when FunnelHub opens** controls this per connection and **Sync interval
+(minutes)** accepts any whole number from 1 to 10080 (for example, 5 or 10). Existing intervals are kept.
+Set the interval to **0** for manual-only operation; paused and manual-only connections never sync on launch.
+The regular schedule runs on the server even with every browser closed, checking for due work about once a minute.
+
+Launch requests share the existing sync locks and skip connections refreshed within the last minute, so multiple
+tabs do not duplicate work. Failed automatic syncs wait for their retry interval (up to 30 minutes). The open app
+checks saved results every 15 seconds and refreshes lists and dashboard data without reloading the page or closing
+forms. Hidden tabs pause these checks and catch up when visible again. `SYNC_SCHEDULER=false` disables launch
+syncs as well as scheduled syncing. Very short intervals consume more platform API quota.
+
 Each connection shows **next in …**, and the top of the Connections list says whether automatic sync is running.
 Results are logged: `docker logs funnelhub-crm 2>&1 | grep auto-sync | tail -20`.
 

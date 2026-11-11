@@ -1,6 +1,7 @@
 """Run tests/syncs for an Integration, store results, and serialize them for the API."""
 import json
 import threading
+from collections.abc import Callable
 from dataclasses import asdict
 
 from sqlalchemy.orm import Session
@@ -78,11 +79,17 @@ def _save_metrics(db: Session, ctx: base.SyncContext, provider: str) -> None:
     ctx.stats["metrics"] = save_api_metrics(db, ctx.channel.id, provider, ctx.metrics)
 
 
-def run_sync(db: Session, integ: Integration) -> Integration:
+def run_sync(db: Session, integ: Integration, *, should_sync: Callable[[Integration], bool] | None = None) -> Integration:
     lock = _lock(integ.id)
     if not lock.acquire(blocking=False):
         raise base.SyncError("A sync for this connection is already running")
     try:
+        # A manual or scheduled sync may have completed since this connection was selected.
+        # Recheck automatic eligibility under the same lock used by every full sync.
+        if should_sync is not None:
+            db.refresh(integ)
+            if not should_sync(integ):
+                return integ
         integ.last_status = "running"
         db.commit()
         started = utcnow()
@@ -136,6 +143,7 @@ def serialize(integ: Integration) -> dict:
         "channel_name": integ.channel.name if integ.channel else None,
         "config": json.loads(integ.config or "{}"), "saved_secrets": secret_keys, "secrets_ok": secrets_ok,
         "enabled": integ.enabled, "sync_interval_minutes": integ.sync_interval_minutes,
+        "sync_on_open": json.loads(integ.config or "{}").get("sync_on_open", True),
         "last_sync_at": integ.last_sync_at.isoformat() if integ.last_sync_at else None,
         "next_sync_at": _next(integ),
         "last_status": integ.last_status, "last_error": integ.last_error,

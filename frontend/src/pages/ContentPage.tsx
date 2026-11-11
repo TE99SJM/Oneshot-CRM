@@ -1,3 +1,4 @@
+import { useSyncRevision } from "../hooks/useAutoSync";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge, Empty, Field, Modal, statusTone } from "../components/ui";
@@ -13,6 +14,7 @@ const postDate = (p: Post) => (p.scheduled_at ?? p.published_at ? parseUtc((p.sc
 const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
 export default function ContentPage() {
+  const syncRevision = useSyncRevision();
   const { posts, loadPosts, channels } = useCrm();
   const [view, setView] = useState<"calendar" | "list">("calendar");
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
@@ -20,7 +22,7 @@ export default function ContentPage() {
   const [statusFilter, setStatusFilter] = useState<PostStatus | "">("");
   const [editing, setEditing] = useState<Partial<Post> | null>(null);
 
-  useEffect(() => { loadPosts().catch(toastError); }, [loadPosts]);
+  useEffect(() => { loadPosts().catch(toastError); }, [loadPosts, syncRevision]);
 
   const filtered = useMemo(() => posts.filter((p) =>
     (channelFilter === "" || p.channel_id === channelFilter) && (statusFilter === "" || p.status === statusFilter)), [posts, channelFilter, statusFilter]);

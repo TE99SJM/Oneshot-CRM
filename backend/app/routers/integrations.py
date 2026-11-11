@@ -4,7 +4,7 @@ import json
 import secrets as secrets_mod
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,6 +27,7 @@ class IntegrationIn(BaseModel):
     channel_id: int | None = None
     values: dict[str, str] = {}          # field key -> value (secret and non-secret)
     enabled: bool = True
+    sync_on_open: bool = True
     sync_interval_minutes: int | None = Field(default=None, ge=0, le=60 * 24 * 7)   # None = provider default
 
 
@@ -35,6 +36,7 @@ class IntegrationPatch(BaseModel):
     channel_id: int | None = None
     values: dict[str, str] | None = None  # empty secret values keep the saved secret
     enabled: bool | None = None
+    sync_on_open: bool | None = None
     sync_interval_minutes: int | None = Field(default=None, ge=0, le=60 * 24 * 7)
 
 
@@ -82,6 +84,16 @@ def list_integrations(db: Session = Depends(get_db)):
     return [serialize(i) for i in db.scalars(select(Integration).order_by(Integration.id)).all()]
 
 
+@router.post("/browser-open", status_code=202)
+def browser_open(background: BackgroundTasks):
+    """Queue a launch refresh without holding the browser request open during provider calls."""
+    from ..integrations.scheduler import request_browser_sync, run_browser_sync
+    queued = request_browser_sync()
+    if queued:
+        background.add_task(run_browser_sync)
+    return {"queued": queued}
+
+
 @router.post("", status_code=201)
 def create_integration(data: IntegrationIn, db: Session = Depends(get_db)):
     if data.provider not in PROVIDERS:
@@ -89,6 +101,7 @@ def create_integration(data: IntegrationIn, db: Session = Depends(get_db)):
     if data.channel_id is not None and db.get(Channel, data.channel_id) is None:
         raise HTTPException(422, "Channel not found")
     config, secrets = _split(data.provider, data.values, {}, {})
+    config["sync_on_open"] = data.sync_on_open
     if data.provider == "ebay":
         config["verification_token"] = ebay.new_verification_token()
     integ = Integration(provider=data.provider, name=data.name or PROVIDERS[data.provider].INFO.name,
@@ -127,6 +140,10 @@ def update_integration(integration_id: int, data: IntegrationPatch, db: Session 
     for k in ("name", "enabled", "sync_interval_minutes"):
         if patch.get(k) is not None:
             setattr(integ, k, patch[k])
+    if patch.get("sync_on_open") is not None:
+        config = json.loads(integ.config or "{}")
+        config["sync_on_open"] = patch["sync_on_open"]
+        integ.config = json.dumps(config)
     ensure_channel(db, integ)
     db.commit()
     db.refresh(integ)

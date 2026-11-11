@@ -1,3 +1,4 @@
+import { useSyncRevision } from "../hooks/useAutoSync";
 import { useEffect, useState } from "react";
 import { Period, PeriodPicker, loadPeriod, periodInfo, savePeriod, tzOffset } from "../components/Period";
 import StatChartModal, { MetricKey } from "../components/StatChartModal";
@@ -15,6 +16,7 @@ import type { Dashboard } from "../types";
 const shortDate = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
 export default function DashboardPage() {
+  const syncRevision = useSyncRevision();
   const [data, setData] = useState<Dashboard | null>(null);
   const [period, setPeriodState] = useState<Period>(loadPeriod);
   const [chart, setChart] = useState<MetricKey | null>(null);
@@ -30,7 +32,7 @@ export default function DashboardPage() {
     api.get<{ bucket: string; points: SeriesPoint[] }>("/dashboard/series/won_revenue", q).then(setRevenue).catch(() => setRevenue(null));
     api.get<{ groups: CombinedGroup[] }>("/metrics/combined", q).then((r) => setCombined(r.groups)).catch(() => setCombined([]));
   };
-  useEffect(() => { load(); }, [info.start, info.end]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [info.start, info.end, syncRevision]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const t = setInterval(load, 5 * 60000); return () => clearInterval(t); }, [info.start, info.end]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function completeTask(id: number) {

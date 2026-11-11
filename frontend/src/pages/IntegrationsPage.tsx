@@ -8,6 +8,7 @@ import { dateTime, money, num, parseUtc } from "../format";
 import { useCrm } from "../store/crmStore";
 import { toastError, useToasts } from "../store/toastStore";
 import type { Channel, Integration, Provider, SchedulerStatus } from "../types";
+import { useSyncRevision } from "../hooks/useAutoSync";
 
 /** Pre-fill connect-form values from an existing channel record. */
 function prefill(provider: string, ch?: Channel): Record<string, string> {
@@ -44,6 +45,7 @@ function summary(r: Integration["last_result"]) {
 }
 
 export default function IntegrationsPage() {
+  const syncRevision = useSyncRevision();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [items, setItems] = useState<Integration[]>([]);
   const [editing, setEditing] = useState<{ provider: Provider; existing?: Integration; channelId?: number } | null>(null);
@@ -62,7 +64,7 @@ export default function IntegrationsPage() {
     const [p, i] = await Promise.all([api.get<Provider[]>("/integrations/providers"), api.get<Integration[]>("/integrations")]);
     setProviders(p); setItems(i);
   }, []);
-  useEffect(() => { load().catch(toastError); }, [load]);
+  useEffect(() => { load().catch(toastError); }, [load, syncRevision]);
   // Keep "last sync" fresh while the page is open: background syncs happen on the server.
   const [sched, setSched] = useState<SchedulerStatus | null>(null);
   useEffect(() => {
@@ -201,6 +203,7 @@ export default function IntegrationsPage() {
                     <div className="muted small">
                       {p?.name ?? i.provider} → channel “{i.channel_name ?? "—"}” · last sync {dateTime(i.last_sync_at)} ·{" "}
                       {INTERVALS.find((x) => x.v === i.sync_interval_minutes)?.l ?? `every ${i.sync_interval_minutes} min`}
+                      {i.enabled && i.sync_interval_minutes > 0 && i.sync_on_open && <> · also on browser launch</>}
                       {i.enabled && i.next_sync_at && <> · next {until(i.next_sync_at)}</>}
                     </div>
                     {s && <div className="small">{s}</div>}
@@ -581,7 +584,8 @@ function ConnectForm({ provider, existing, channelId: presetChannel, onClose, on
   const preset = channels.find((c) => c.id === presetChannel);
   const [name, setName] = useState(existing?.name ?? preset?.name ?? provider.name);
   const [channelId, setChannelId] = useState<number | "">(existing?.channel_id ?? preset?.id ?? "");
-  const [interval, setIntervalMin] = useState(existing?.sync_interval_minutes ?? provider.default_interval ?? 360);
+  const [interval, setIntervalMin] = useState(String(existing?.sync_interval_minutes ?? provider.default_interval ?? 360));
+  const [syncOnOpen, setSyncOnOpen] = useState(existing?.sync_on_open ?? true);
   const [enabled, setEnabled] = useState(existing?.enabled ?? true);
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(provider.fields.map((f) => [f.key, f.secret ? "" : existing?.config[f.key] ?? prefill(provider.key, preset)[f.key] ?? f.default])));
@@ -593,7 +597,7 @@ function ConnectForm({ provider, existing, channelId: presetChannel, onClose, on
     e.preventDefault();
     setSaving(true);
     try {
-      const body = { name, channel_id: channelId === "" ? null : channelId, values, enabled, sync_interval_minutes: interval };
+      const body = { name, channel_id: channelId === "" ? null : channelId, values, enabled, sync_interval_minutes: Number(interval), sync_on_open: syncOnOpen };
       const saved = existing
         ? await api.patch<Integration>(`/integrations/${existing.id}`, body)
         : await api.post<Integration>("/integrations", { provider: provider.key, ...body });
@@ -659,11 +663,13 @@ function ConnectForm({ provider, existing, channelId: presetChannel, onClose, on
             </Field>
           );
         })}
-        <Field label="Automatic sync">
-          <select value={interval} onChange={(e) => setIntervalMin(Number(e.target.value))}>
-            {INTERVALS.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}
-          </select>
+        <Field label="Sync interval (minutes)" hint="Enter any whole number from 1 to 10080. 0 = manual only. Syncing continues while your browser is closed; frequent syncs use more of your platform's API quota.">
+          <input type="number" min={0} max={10080} step={1} required value={interval} aria-label="Sync interval (minutes)"
+            list="sync-intervals" onChange={(e) => setIntervalMin(e.target.value)} />
+          <datalist id="sync-intervals">{INTERVALS.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}</datalist>
         </Field>
+        <label className="row small"><input type="checkbox" checked={syncOnOpen} disabled={!enabled || Number(interval) === 0}
+          onChange={(e) => setSyncOnOpen(e.target.checked)} /> Sync when FunnelHub opens</label>
         <label className="row small"><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> Enabled</label>
       </form>
       <p className="muted small">Secrets are encrypted in your CRM's database and never shown again after saving.</p>
@@ -703,7 +709,7 @@ function SchedulerLine({ s }: { s: SchedulerStatus | null }) {
   const busy = [s.lanes.stats, s.lanes.sales].filter((l) => l.running_name).map((l) => l.running_name);
   return (
     <p className="muted small" data-testid="sched-ok">
-      Automatic sync is on: followers & views every 6 hours, sales & messages every 15 minutes (change per connection with Edit).
+      Automatic sync is on. Use Edit on a connection to set its interval in minutes and whether it syncs when FunnelHub opens.
       {" "}Last check {ago(s.lanes.stats.last_tick)}{busy.length ? ` · syncing ${busy.join(", ")} now` : ""}.
     </p>
   );
