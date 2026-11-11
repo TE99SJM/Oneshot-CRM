@@ -1,3 +1,4 @@
+import { useSyncRevision } from "../hooks/useAutoSync";
 import { DragEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { Empty, Field, Modal } from "../components/ui";
 import { dateOnly, fullName, money } from "../format";
@@ -8,6 +9,7 @@ import { api } from "../api/client";
 import { DateRangePicker, Range, defaultRange, inRange } from "../components/DateRange";
 
 export default function PipelinePage() {
+  const syncRevision = useSyncRevision();
   const { funnels, deals, loadDeals, moveDeal, channels, loadFunnels } = useCrm();
   // Syncs (Square, eBay) can create funnels, so refresh the list whenever the Pipeline opens.
   useEffect(() => { loadFunnels().catch(toastError); }, [loadFunnels]);
@@ -21,8 +23,8 @@ export default function PipelinePage() {
   const shown = (d: Deal) => (!range.from && !range.to) || inRange(d.created_at, range) || inRange(d.closed_at, range);
 
   const funnel = funnels.find((f) => f.id === funnelId) ?? funnels[0];
-  useEffect(() => { if (funnel) loadDeals(funnel.id).catch(toastError); }, [funnel?.id, loadDeals]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { api.get<{ items: Contact[] }>("/contacts", { limit: 500 }).then((r) => setContacts(r.items)).catch(toastError); }, []);
+  useEffect(() => { if (funnel) loadDeals(funnel.id).catch(toastError); }, [funnel?.id, loadDeals, syncRevision]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { api.get<{ items: Contact[] }>("/contacts", { limit: 500 }).then((r) => setContacts(r.items)).catch(toastError); }, [syncRevision]);
 
   const byStage = useMemo(() => {
     const m = new Map<number, Deal[]>();

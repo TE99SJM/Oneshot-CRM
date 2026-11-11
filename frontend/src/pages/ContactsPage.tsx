@@ -1,3 +1,4 @@
+import { useSyncRevision } from "../hooks/useAutoSync";
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
@@ -11,6 +12,7 @@ const STATUSES: ContactStatus[] = ["lead", "prospect", "customer", "inactive"];
 const blank: Partial<Contact> = { first_name: "", last_name: "", email: "", phone: "", company: "", status: "lead", source_channel_id: null, tags: "", notes: "" };
 
 export default function ContactsPage() {
+  const syncRevision = useSyncRevision();
   const { contacts, contactTotal, contactFilters, setContactFilters, loadContacts, channels, loading } = useCrm();
   const [editing, setEditing] = useState<Partial<Contact> | null>(null);
   const [params, setParams] = useSearchParams();
@@ -29,7 +31,7 @@ export default function ContactsPage() {
   useEffect(() => {
     const t = setTimeout(() => loadContacts().catch(toastError), 250); // debounce search typing
     return () => clearTimeout(t);
-  }, [contactFilters, loadContacts]);
+  }, [contactFilters, loadContacts, syncRevision]);
 
   const open = contacts.find((c) => c.id === openId) ?? (fetched?.id === openId ? fetched : null);
 

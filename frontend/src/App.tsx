@@ -18,11 +18,13 @@ import TasksPage from "./pages/TasksPage";
 import { useAuth } from "./store/authStore";
 import { useCrm } from "./store/crmStore";
 import { toastError } from "./store/toastStore";
+import { useAutoSync } from "./hooks/useAutoSync";
 
 export default function App() {
   const { phase, init } = useAuth();
   const loadReference = useCrm((s) => s.loadReference);
   const [bootError, setBootError] = useState("");
+  useAutoSync(phase === "authed");
 
   useEffect(() => { init().catch((e) => setBootError(e instanceof Error ? e.message : String(e))); }, [init]);
   useEffect(() => { if (phase === "authed") loadReference().catch(toastError); }, [phase, loadReference]);

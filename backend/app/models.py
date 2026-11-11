@@ -126,6 +126,25 @@ class Post(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     channel: Mapped[Channel | None] = relationship()
+    attachments: Mapped[list["PostAttachment"]] = relationship(
+        cascade="all, delete-orphan", order_by="PostAttachment.position", lazy="selectin")
+
+    @property
+    def media_ids(self) -> list[int]:
+        return [a.media_id for a in self.attachments]
+
+    @property
+    def media(self) -> list["MediaFile"]:
+        return [a.media for a in self.attachments]
+
+
+class PostAttachment(Base):
+    """Ordered uploads retained by a calendar plan, independently of publishing jobs."""
+    __tablename__ = "post_attachments"
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True)
+    media_id: Mapped[int] = mapped_column(ForeignKey("media_files.id", ondelete="RESTRICT"), primary_key=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    media: Mapped["MediaFile"] = relationship(lazy="joined")
 
 
 class Activity(Base):
@@ -236,7 +255,7 @@ class Email(Base):
 
 
 class MediaFile(Base):
-    """A photo or video uploaded in Compose, stored under DATA_DIR/media."""
+    """A photo or video uploaded in Compose or a calendar plan, stored under DATA_DIR/media."""
     __tablename__ = "media_files"
     id: Mapped[int] = mapped_column(primary_key=True)
     token: Mapped[str] = mapped_column(String(64), unique=True, index=True)   # unguessable id for the public link
@@ -249,6 +268,12 @@ class MediaFile(Base):
     width: Mapped[int] = mapped_column(Integer, default=0)
     height: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    @property
+    def url(self) -> str:
+        ext = ".jpg" if self.kind == "image" and self.jpeg_name else (
+            self.stored_name[self.stored_name.rfind("."):] if "." in self.stored_name else "")
+        return f"/api/media/public/{self.token}{ext}"
 
 
 class PublishJob(Base):

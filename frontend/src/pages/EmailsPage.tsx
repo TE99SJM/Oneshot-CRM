@@ -1,3 +1,4 @@
+import { useSyncRevision } from "../hooks/useAutoSync";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
@@ -13,6 +14,7 @@ const kb = (n: number) => (n > 1_000_000 ? `${(n / 1_000_000).toFixed(1)} MB` : 
 const who = (e: EmailRow) => (e.direction === "out" ? `To: ${e.to_addrs.split(",")[0].replace(/<.*>/, "").trim() || e.to_addrs}` : e.from_name || e.from_email);
 
 export default function EmailsPage() {
+  const syncRevision = useSyncRevision();
   const [params, setParams] = useSearchParams();
   const contactParam = params.get("contact");
   const [data, setData] = useState<EmailPage | null>(null);
@@ -34,7 +36,7 @@ export default function EmailsPage() {
     if (range.to) p.date_to = range.to;
     api.get<EmailPage>(`/emails?${new URLSearchParams(p)}`).then(setData).catch(toastError);
   }, [q, direction, show, range, offset, contactParam]);
-  useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
+  useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load, syncRevision]);
   useEffect(() => setOffset(0), [q, direction, show, range, contactParam]);
 
   const filtered = !!(q || direction || show !== "all" || range.from || range.to || contactParam);

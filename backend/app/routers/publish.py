@@ -13,7 +13,7 @@ from ..database import get_db
 from ..deps import current_user, get_or_404
 from ..integrations.base import parse_dt
 from ..integrations.crypto import decrypt_secrets
-from ..models import Integration, MediaFile, Post, PublishJob, PublishTarget, utcnow
+from ..models import Integration, MediaFile, Post, PostAttachment, PublishJob, PublishTarget, utcnow
 from ..publishing import media as media_store, runner
 from ..publishing.common import PublishInput
 
@@ -45,9 +45,8 @@ class JobPatch(BaseModel):
 
 
 def _media_out(m: MediaFile) -> dict:
-    ext = ".jpg" if m.kind == "image" and m.jpeg_name else (m.stored_name[m.stored_name.rfind("."):] if "." in m.stored_name else "")
     return {"id": m.id, "filename": m.filename, "kind": m.kind, "mime": m.mime, "size": m.size, "width": m.width,
-            "height": m.height, "url": f"/api/media/public/{m.token}{ext}"}
+            "height": m.height, "url": m.url}
 
 
 def _job_out(db: Session, job: PublishJob) -> dict:
@@ -96,20 +95,27 @@ def targets(db: Session = Depends(get_db)):
 @router.post("/media", status_code=201)
 def upload_media(files: list[UploadFile] = File(...), db: Session = Depends(get_db)):
     saved = []
-    for f in files:
-        try:
+    try:
+        for f in files:
             m = media_store.save_upload(f)
-        except ValueError as e:
+            saved.append(m)
+            db.add(m)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        for m in saved:
+            media_store.delete_files(m)
+        if isinstance(e, ValueError):
             raise HTTPException(422, f"{f.filename}: {e}") from e
-        db.add(m)
-        saved.append(m)
-    db.commit()
+        raise
     return [_media_out(m) for m in saved]
 
 
 @router.delete("/media/{media_id}", status_code=204)
 def delete_media(media_id: int, db: Session = Depends(get_db)):
     m = get_or_404(db, MediaFile, media_id)
+    if db.scalar(select(PostAttachment.post_id).where(PostAttachment.media_id == media_id).limit(1)):
+        raise HTTPException(409, "That file is attached to a saved plan. Remove it from the plan and save first.")
     for j in db.scalars(select(PublishJob).where(PublishJob.status.in_(("scheduled", "posting")))).all():
         if media_id in json.loads(j.media_ids or "[]"):
             raise HTTPException(409, "That file is attached to a scheduled post")

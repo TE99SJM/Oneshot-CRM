@@ -224,6 +224,19 @@ Platforms retire metrics now and then; anything a platform stops returning is si
 - **Click any of the six numbers** to open it full screen: time across the bottom, the number up the side, and a dashed straight-line trendline (least-squares fit). Hover to see each day/week/month. You can change the period, group by day/week/month, switch revenue and views to a running total, and turn the trendline off. Press Esc or × to close.
 - **Where the history comes from:** revenue, win rate, contacts and pipeline are rebuilt from your deals and contacts. Views use each post's current view count on the day it was published. **Audience has no history from the platforms**, so the CRM now saves one reading per day; that chart starts on the day you install this update and fills in over time.
 
+## Media in planned posts
+
+**Content → Plan a post**, or open any existing calendar post, then use **Photos / videos** to
+choose or drag in up to 20 files. Upload progress and photo/video previews appear in the form.
+Save waits until uploads finish; remove a failed upload before saving. Reopening the plan keeps
+its attachments, caption, channel and date. Removing an existing attachment takes effect only
+when you save, so Cancel preserves the saved plan. New uploads are discarded if you cancel.
+
+Saving a plan does not publish or queue it on a platform; **Compose** still handles actual
+publishing. Media attached to saved plans is retained until detached or the plan is deleted,
+so the two-day cleanup for unused uploads cannot erase your drafts. The new attachment table
+is created automatically on startup without changing existing posts.
+
 ## Posting (Compose)
 
 The **Compose** tab sends one post to any mix of your **Facebook Page**, **Instagram**, **TikTok** and **YouTube** connections.
@@ -259,7 +272,7 @@ What each platform takes:
 ### Good to know
 
 - Scheduled posts go out within about 30 seconds of their time, **as long as the CRM is running**. If the server is off, they go out as soon as it starts again.
-- Photos and videos are uploaded to the server first (`data/media`). They're deleted automatically 14 days after posting.
+- Photos and videos are uploaded to the server first (`data/media`). They're deleted automatically 14 days after posting unless also retained by a saved calendar plan.
 - For Instagram photos, the CRM stores them as hidden Facebook Page photos so Instagram can fetch them, then deletes those copies. Nothing extra to set up.
 - Instagram videos upload directly. If Instagram ever refuses that for your app, put your public Tailscale address (for example `https://mserver.your-tailnet.ts.net`) in **Public media address** on the Instagram connection and share only the media folder:
   `sudo tailscale funnel --bg --set-path=/api/media/public http://127.0.0.1:3050/api/media/public`
@@ -285,6 +298,18 @@ Default schedule:
 | TikTok Shop buyer messages | Every 5 minutes |
 
 Sales and stats run in two separate background lanes, so a slow stats sync never holds up sales and vice versa.
+Opening FunnelHub in a browser (after sign-in) also starts a background sync of enabled automatic connections.
+Under **Integrations → Edit**, **Sync when FunnelHub opens** controls this per connection and **Sync interval
+(minutes)** accepts any whole number from 1 to 10080 (for example, 5 or 10). Existing intervals are kept.
+Set the interval to **0** for manual-only operation; paused and manual-only connections never sync on launch.
+The regular schedule runs on the server even with every browser closed, checking for due work about once a minute.
+
+Launch requests share the existing sync locks and skip connections refreshed within the last minute, so multiple
+tabs do not duplicate work. Failed automatic syncs wait for their retry interval (up to 30 minutes). The open app
+checks saved results every 15 seconds and refreshes lists and dashboard data without reloading the page or closing
+forms. Hidden tabs pause these checks and catch up when visible again. `SYNC_SCHEDULER=false` disables launch
+syncs as well as scheduled syncing. Very short intervals consume more platform API quota.
+
 Each connection shows **next in …**, and the top of the Connections list says whether automatic sync is running.
 Results are logged: `docker logs funnelhub-crm 2>&1 | grep auto-sync | tail -20`.
 

@@ -179,7 +179,8 @@ def cleanup_media(force: bool = False) -> int:
     removed = 0
     with SessionLocal() as db:
         jobs = db.scalars(select(PublishJob)).all()
-        in_use: set[int] = set()
+        from ..models import PostAttachment
+        in_use: set[int] = set(db.scalars(select(PostAttachment.media_id)).all())
         for j in jobs:
             ids = set(json.loads(j.media_ids or "[]"))
             old = j.status in FINAL and (j.finished_at or j.created_at) + KEEP_MEDIA < now
