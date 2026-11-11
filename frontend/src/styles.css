@@ -254,6 +254,9 @@ textarea { resize: vertical; }
 .dropzone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 22px; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; background: var(--surface-2); text-align: center; }
 .dropzone:hover, .dropzone.over { border-color: var(--primary); background: var(--primary-soft); }
 .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.plan-media { display: grid; gap: 10px; min-width: 0; }
+.plan-media > p { margin: 0; }
+.plan-media progress { width: 100%; }
 .media-tile { position: relative; border: 1px solid var(--border); border-radius: 8px; padding: 6px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); min-width: 0; }
 .media-tile img, .media-tile video { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; background: #111; }
 .media-meta { display: flex; justify-content: space-between; gap: 6px; min-width: 0; }

@@ -28,6 +28,7 @@ export interface Deal {
 }
 
 export interface Post {
+  media_ids: number[]; media: MediaItem[];
   id: number; channel_id: number | null; title: string; body: string; status: PostStatus;
   scheduled_at: string | null; published_at: string | null; url: string;
   views: number; likes: number; comments: number; shares: number; clicks: number; created_at: string;

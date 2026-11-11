@@ -226,10 +226,11 @@ class PostBase(BaseModel):
 
 
 class PostIn(PostBase):
-    pass
+    media_ids: list[int] = Field(default_factory=list, max_length=20)
 
 
 class PostPatch(BaseModel):
+    media_ids: list[int] = Field(default_factory=list, max_length=20)
     channel_id: int | None = None
     title: str | None = Field(default=None, min_length=1, max_length=200)
     body: str | None = None
@@ -244,7 +245,20 @@ class PostPatch(BaseModel):
     clicks: int | None = Field(default=None, ge=0)
 
 
+class MediaOut(ORM):
+    id: int
+    filename: str
+    kind: Literal["image", "video"]
+    mime: str
+    size: int
+    width: int
+    height: int
+    url: str
+
+
 class PostOut(PostBase, ORM):
+    media_ids: list[int] = Field(default_factory=list)
+    media: list[MediaOut] = Field(default_factory=list)
     external_source: str = ""
     external_id: str = ""
     id: int

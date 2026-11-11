@@ -1,7 +1,8 @@
 import { useSyncRevision } from "../hooks/useAutoSync";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge, Empty, Field, Modal, statusTone } from "../components/ui";
+import PostMedia from "../components/PostMedia";
 import { dateTime, fromLocalInput, num, parseUtc, toLocalInput } from "../format";
 import { channelName, useCrm } from "../store/crmStore";
 import { toastError } from "../store/toastStore";
@@ -129,6 +130,10 @@ export default function ContentPage() {
 function PostForm({ initial, onClose }: { initial: Partial<Post>; onClose: () => void }) {
   const { channels, savePost, deletePost } = useCrm();
   const [form, setForm] = useState<Partial<Post>>(initial);
+  const [media, setMedia] = useState(initial.media ?? []);
+  const committed = useRef(new Set((initial.media ?? []).map((m) => m.id)));
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const set = (k: keyof Post, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
   const metric = (k: "views" | "likes" | "comments" | "shares" | "clicks") => (
     <Field label={k[0].toUpperCase() + k.slice(1)}><input type="number" min={0} value={form[k] ?? 0} onChange={(e) => set(k, Number(e.target.value))} /></Field>
@@ -136,16 +141,24 @@ function PostForm({ initial, onClose }: { initial: Partial<Post>; onClose: () =>
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (uploading || saving) return;
     const { id, created_at, ...data } = form as Post;
     void created_at;
-    try { await savePost(data, id); onClose(); } catch (err) { toastError(err); }
+    setSaving(true);
+    try {
+      const saved = await savePost({ ...data, media_ids: media.map((m) => m.id) }, id);
+      committed.current = new Set(saved.media_ids);
+      onClose();
+    } catch (err) { toastError(err); } finally { setSaving(false); }
   }
   async function remove() { if (form.id && confirm("Delete this post?")) { await deletePost(form.id).catch(toastError); onClose(); } }
 
   return (
-    <Modal wide title={form.id ? "Edit post" : "New post"} onClose={onClose}
-           footer={<>{form.id && <button type="button" className="btn btn-danger" onClick={remove}>Delete</button>}<span className="grow" />
-             <button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" form="post-form">Save</button></>}>
+    <Modal wide title={form.id ? "Edit post" : "New post"} onClose={() => { if (!saving) onClose(); }}
+           footer={<>{form.id && <button type="button" className="btn btn-danger" disabled={saving} onClick={remove}>Delete</button>}<span className="grow" />
+             <button type="button" className="btn" disabled={saving} onClick={onClose}>Cancel</button>
+             <button className="btn btn-primary" form="post-form" disabled={uploading || saving}
+               title={uploading ? "Wait for uploads to finish or remove failed files" : undefined}>{saving ? "Saving…" : "Save"}</button></>}>
       <form id="post-form" className="form-grid" onSubmit={submit}>
         <div className="span-2"><Field label="Title / hook"><input required autoFocus value={form.title ?? ""} onChange={(e) => set("title", e.target.value)} /></Field></div>
         <Field label="Channel">
@@ -159,6 +172,7 @@ function PostForm({ initial, onClose }: { initial: Partial<Post>; onClose: () =>
         <Field label="Scheduled for"><input type="datetime-local" value={toLocalInput(form.scheduled_at)} onChange={(e) => set("scheduled_at", fromLocalInput(e.target.value))} /></Field>
         <Field label="Published URL"><input value={form.url ?? ""} onChange={(e) => set("url", e.target.value)} placeholder="https://" /></Field>
         <div className="span-2"><Field label="Caption / script"><textarea rows={5} value={form.body ?? ""} onChange={(e) => set("body", e.target.value)} /></Field></div>
+        <div className="span-2"><PostMedia media={media} setMedia={setMedia} committed={committed} onBusyChange={setUploading} disabled={saving} /></div>
         <div className="span-2 metrics">{metric("views")}{metric("likes")}{metric("comments")}{metric("shares")}{metric("clicks")}</div>
       </form>
     </Modal>
